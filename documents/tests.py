@@ -130,6 +130,20 @@ class QuotationModelTests(TestCase):
         expected_str = f"Quotation {quote.quotation_number} ({self.db_client.name})"
         self.assertEqual(str(quote), expected_str) # Now check
 
+    def test_quotation_total_calculation(self):
+        """Test the total calculation property for the quotation."""
+        # This test will fail until the total property exists
+        quote = Quotation.objects.create(client=self.db_client, issue_date=timezone.now().date())
+        # Need a menu item to add lines
+        menu_item = MenuItem.objects.create(name="Item for Total Test", unit_price=Decimal("10.00"))
+
+        # Add line items
+        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=2, unit_price=Decimal("10.00")) # 20.00
+        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=1, unit_price=Decimal("15.50")) # 15.50
+
+        # Total should be 20.00 + 15.50 = 35.50
+        self.assertEqual(quote.total, Decimal("35.50"))
+
 
 class QuotationItemModelTests(TestCase):
 
@@ -159,3 +173,14 @@ class QuotationItemModelTests(TestCase):
 
     # We might add tests later for default description/price copying once we implement that logic.
     # For now, we test setting the fields directly.
+
+    def test_quotation_item_line_total(self):
+        """Test the line_total calculation property."""
+        # This test will fail until the line_total property exists
+        item = QuotationItem.objects.create(
+            quotation=self.quote,
+            menu_item=self.menu_item,
+            quantity=Decimal("3.0"),
+            unit_price=Decimal("10.50") # 3 * 10.50 = 31.50
+        )
+        self.assertEqual(item.line_total, Decimal("31.50"))

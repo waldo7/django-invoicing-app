@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings # Needed for ForeignKey to User if we add created_by later
 from django.utils import timezone # For default dates
+from decimal import Decimal
 
 # Create your models here.
 class Client(models.Model):
@@ -99,6 +100,15 @@ class Quotation(models.Model):
 
     def __str__(self):
         return f"Quotation {self.quotation_number} ({self.client.name})"
+    
+    @property
+    def total(self):
+        """Calculate the total sum of all line item totals for this quotation."""
+        # Use the related_name 'items' we defined in QuotationItem's ForeignKey
+        # Sum the 'line_total' property of each item
+        total_sum = sum(item.line_total for item in self.items.all())
+        # Ensure it's a Decimal with 2 places
+        return total_sum.quantize(Decimal("0.01"))
 
     class Meta:
         ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
@@ -120,6 +130,13 @@ class QuotationItem(models.Model):
 
     # We will add logic later to auto-fill description/unit_price from menu_item
     # and a property/method to calculate line_total (quantity * unit_price)
+    @property
+    def line_total(self):
+        """Calculate the total for this line item."""
+        if self.quantity is not None and self.unit_price is not None:
+            return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+        return Decimal("0.00")
+
 
     class Meta:
         ordering = ['id'] # Order items by creation order within a quote

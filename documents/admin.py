@@ -28,13 +28,17 @@ class QuotationItemInline(admin.TabularInline): # Or use admin.StackedInline for
     model = QuotationItem
     extra = 1 # Number of empty item forms to show by default
     # We can add fields later to customize the inline form, e.g., readonly_fields
+    readonly_fields = ('line_total',) # Display calculated total as read-only
+
+    def line_total(self, obj):
+        return obj.line_total 
 
 @admin.register(Quotation)
 class QuotationAdmin(admin.ModelAdmin):
     """
     Configuration for the Quotation model in the Django admin interface.
     """
-    list_display = ('quotation_number', 'client', 'title', 'status', 'version', 'issue_date', 'valid_until') # Removed placeholder 'total_amount' for now
+    list_display = ('quotation_number', 'client', 'title', 'status', 'version', 'issue_date', 'valid_until', 'display_total') # Removed placeholder 'total_amount' for now
     list_filter = ('status', 'client', 'issue_date', 'created_at')
     search_fields = ('quotation_number', 'client__name', 'title', 'items__menu_item__name')
     # Make auto-generated/timestamp fields read-only
@@ -63,6 +67,17 @@ class QuotationAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+    def display_total(self, obj):
+         # Call the 'total' property from the Quotation model
+         # Format it nicely for display (optional, but good)
+         try:
+             # Format as currency, you might need locale settings or a formatting library later
+             return f"RM {obj.total:,.2f}"
+         except Exception:
+             return "Error" # Handle potential calculation errors gracefully
+    display_total.short_description = 'Total Amount' # Column header
+
     # Embed the item editor within the quote page
     inlines = [QuotationItemInline]
 
