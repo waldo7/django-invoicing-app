@@ -22,13 +22,27 @@ class MenuItem(models.Model):
     Represents a menu item or service offered.
     Stores the default price; actual price might vary per quote/invoice line item.
     """
+    class UnitType(models.TextChoices):
+        PERSON = 'PERSON', 'Per Person'
+        PACK = 'PACK', 'Per Pack'
+        TRAY = 'TRAY', 'Per Tray'
+        ITEM = 'ITEM', 'Per Item'
+        FIXED = 'FIXED', 'Fixed Price'
+        DAY = 'DAY', 'Per Day'
+        EVENT = 'EVENT', 'Per Event'
+        OTHER = 'OTHER', 'Other' # Fallback if needed
+
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
     unit_price = models.DecimalField(
         max_digits=10,    # Max total digits allowed (e.g., 1,234,567.89)
         decimal_places=2  # Number of digits after the decimal point
     )
-    unit = models.CharField(max_length=50, blank=True, default='', help_text="e.g., per person, per tray, per pack, fixed")
+    unit = models.CharField(
+        max_length=10, 
+        choices = UnitType.choices,
+        default = UnitType.ITEM,
+        help_text="e.g., per person, per tray, per pack, fixed")
     is_active = models.BooleanField(default=True, help_text="Is this item currently offered?")
 
     # Timestamps

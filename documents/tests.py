@@ -42,12 +42,12 @@ class MenuItemModelTests(TestCase):
             name="Nasi Lemak",
             description="Fragrant rice with sambal, anchovies, egg",
             unit_price=Decimal("8.50"), # Use Decimal for prices
-            unit="per pack"
+            unit="PACK"
         )
         self.assertEqual(item.name, "Nasi Lemak")
         self.assertEqual(item.description, "Fragrant rice with sambal, anchovies, egg")
         self.assertEqual(item.unit_price, Decimal("8.50"))
-        self.assertEqual(item.unit, "per pack")
+        self.assertEqual(item.unit, "PACK")
         self.assertTrue(item.is_active) # Should default to Truepython manage.py migrate documents
 
     def test_menu_item_str_representation(self):
