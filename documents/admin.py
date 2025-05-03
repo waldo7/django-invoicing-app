@@ -38,7 +38,7 @@ class QuotationAdmin(admin.ModelAdmin):
     list_filter = ('status', 'client', 'issue_date', 'created_at')
     search_fields = ('quotation_number', 'client__name', 'title', 'items__menu_item__name')
     # Make auto-generated/timestamp fields read-only
-    readonly_fields = ('quotation_number', 'created_at', 'updated_at', 'previous_version')
+    readonly_fields = ('quotation_number', 'version', 'created_at', 'updated_at', 'previous_version')
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
         (None, {
