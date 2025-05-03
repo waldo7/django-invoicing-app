@@ -1,4 +1,6 @@
 from django.db import models
+from django.conf import settings # Needed for ForeignKey to User if we add created_by later
+from django.utils import timezone # For default dates
 
 # Create your models here.
 class Client(models.Model):
@@ -54,3 +56,70 @@ class MenuItem(models.Model):
 
     class Meta:
         ordering = ['name'] # Order items alphabetically by name by default
+
+class Quotation(models.Model):
+    """
+    Represents a quotation document header.
+    """
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        SENT = 'SENT', 'Sent'
+        ACCEPTED = 'ACCEPTED', 'Accepted'
+        REJECTED = 'REJECTED', 'Rejected'
+        SUPERSEDED = 'SUPERSEDED', 'Superseded'
+
+    quotation_number = models.CharField(
+        max_length=50, 
+        unique=True,
+        blank=True,
+        null=True,
+        editable=False
+        )
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='quotations')
+    title = models.CharField(max_length=255, blank=True, default='')
+    issue_date = models.DateField(default=timezone.now)
+    valid_until = models.DateField(null=True, blank=True) # Optional
+
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.DRAFT)
+    version = models.PositiveIntegerField(default=1)
+    # Link to previous version, if any. 'self' refers to the Quotation model itself.
+    previous_version = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL, # Keep revision history even if previous is deleted (though unlikely)
+        null=True, blank=True,
+        related_name='next_versions' # How we can find V2 from V1 (V1.next_versions)
+    )
+
+    terms_and_conditions = models.TextField(blank=True, default='')
+    notes = models.TextField(blank=True, default='', help_text="Internal notes, not shown to client")
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Quotation {self.quotation_number} ({self.client.name})"
+
+    class Meta:
+        ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
+
+
+class QuotationItem(models.Model):
+    """
+    Represents a single line item on a Quotation.
+    """
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='items')
+    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name='quotation_items')
+    description = models.TextField(blank=True, help_text="Defaults to menu item description, can be overridden.")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2) # e.g., 1.5 hours, 10 persons
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit for *this* quote line.")
+    grouping_label = models.CharField(max_length=100, blank=True, default='', help_text="Optional label to group items (e.g., 'Day 1 - Lunch')")
+
+    def __str__(self):
+        return f"{self.quantity} x {self.menu_item.name} on {self.quotation.quotation_number}"
+
+    # We will add logic later to auto-fill description/unit_price from menu_item
+    # and a property/method to calculate line_total (quantity * unit_price)
+
+    class Meta:
+        ordering = ['id'] # Order items by creation order within a quote
