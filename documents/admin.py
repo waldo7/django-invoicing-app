@@ -56,6 +56,8 @@ class QuotationAdmin(admin.ModelAdmin):
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
         }),
+        # --- Add Discount Section ---
+        ('Discount', {'fields': ('discount_type', 'discount_value')}),
         # Section 3: Versioning Info
         ('Versioning', {
             # Show read-only fields here if desired, or omit them from fieldsets
@@ -109,6 +111,8 @@ class InvoiceAdmin(admin.ModelAdmin):
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
+        # --- Add Discount Section ---
+        ('Discount', {'fields': ('discount_type', 'discount_value')}),
         ('Content', {'fields': ('terms_and_conditions', 'payment_details', 'notes')}),
         # Show read-only auto-generated fields in a collapsible section
         ('System Info', {

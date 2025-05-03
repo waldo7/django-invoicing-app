@@ -4,11 +4,8 @@ from django.utils import timezone
 from datetime import date
 
 # Create your tests here.
-from .models import Client
-from .models import MenuItem
-from .models import Quotation, QuotationItem
-from .models import Invoice, InvoiceItem 
-from .models import Setting
+from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, DiscountType
+
 
 class ClientModelTests(TestCase):
     def test_client_creation_minimal(self):
@@ -134,19 +131,42 @@ class QuotationModelTests(TestCase):
         expected_str = f"Quotation {quote.quotation_number} ({self.db_client.name})"
         self.assertEqual(str(quote), expected_str) # Now check
 
-    def test_quotation_total_calculation(self):
-        """Test the total calculation property for the quotation."""
-        # This test will fail until the total property exists
+    
+
+    def test_quotation_subtotal_and_discount(self):
+        """Test subtotal and discount amount calculations."""
         quote = Quotation.objects.create(client=self.db_client, issue_date=timezone.now().date())
-        # Need a menu item to add lines
-        menu_item = MenuItem.objects.create(name="Item for Total Test", unit_price=Decimal("10.00"))
+        menu_item = MenuItem.objects.create(name="Item for Disc Test", unit_price=Decimal("50.00"))
+        # Add items: 2 * 50 = 100, 1 * 60 = 60. Subtotal = 160.00
+        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=2, unit_price=Decimal("50.00"))
+        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=1, unit_price=Decimal("60.00"))
 
-        # Add line items
-        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=2, unit_price=Decimal("10.00")) # 20.00
-        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=1, unit_price=Decimal("15.50")) # 15.50
+        # Test subtotal
+        self.assertEqual(quote.subtotal, Decimal("160.00"))
 
-        # Total should be 20.00 + 15.50 = 35.50
-        self.assertEqual(quote.total, Decimal("35.50"))
+        # Test No Discount
+        quote.discount_type = DiscountType.NONE
+        quote.discount_value = Decimal("10.00") # Value ignored
+        quote.save()
+        self.assertEqual(quote.discount_amount, Decimal("0.00"))
+
+        # Test Percentage Discount (10% of 160 = 16.00)
+        quote.discount_type = DiscountType.PERCENTAGE
+        quote.discount_value = Decimal("10.00")
+        quote.save()
+        self.assertEqual(quote.discount_amount, Decimal("16.00"))
+
+        # Test Fixed Discount (RM 25.00)
+        quote.discount_type = DiscountType.FIXED
+        quote.discount_value = Decimal("25.00")
+        quote.save()
+        self.assertEqual(quote.discount_amount, Decimal("25.00"))
+
+        # Test Fixed Discount exceeding subtotal
+        quote.discount_type = DiscountType.FIXED
+        quote.discount_value = Decimal("200.00")
+        quote.save()
+        self.assertEqual(quote.discount_amount, Decimal("160.00")) # Should cap at subtotal
 
 
 class QuotationItemModelTests(TestCase):
@@ -237,20 +257,36 @@ class InvoiceModelTests(TestCase):
         expected_str = f"Invoice {self.invoice.invoice_number} ({self.db_client.name})"
         self.assertEqual(str(self.invoice), expected_str)
 
-    def test_invoice_total_calculation(self):
-        """Test the total calculation property for the invoice."""
-        # Revert back to using self.invoice
-        menu_item1 = MenuItem.objects.create(name="Item A for Inv Total", unit_price=Decimal("100.00"))
-        menu_item2 = MenuItem.objects.create(name="Item B for Inv Total", unit_price=Decimal("25.50"))
+    
 
-        # Use self.invoice here (accessing the one from setUpTestData)
-        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item1, quantity=1, unit_price=Decimal("100.00")) # 100.00
-        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item2, quantity=2, unit_price=Decimal("25.00")) # 50.00
-        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item1, quantity=0.5, unit_price=Decimal("90.00")) # 45.00
+    def test_invoice_subtotal_and_discount(self):
+        """Test subtotal and discount amount calculations for invoice."""
+        # Use self.invoice created in setUpTestData
+        menu_item = MenuItem.objects.create(name="Item for Inv Disc Test", unit_price=Decimal("30.00"))
+        # Add items: 3 * 30 = 90, 1 * 10 = 10. Subtotal = 100.00
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item, quantity=3, unit_price=Decimal("30.00"))
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item, quantity=1, unit_price=Decimal("10.00"))
 
-        # Total should be 100.00 + 50.00 + 45.00 = 195.00
-        # Use self.invoice here too
-        self.assertEqual(self.invoice.total, Decimal("195.00"))
+        # Test subtotal
+        self.assertEqual(self.invoice.subtotal, Decimal("100.00"))
+
+        # Test No Discount
+        self.invoice.discount_type = DiscountType.NONE
+        self.invoice.discount_value = Decimal("5.00")
+        self.invoice.save()
+        self.assertEqual(self.invoice.discount_amount, Decimal("0.00"))
+
+        # Test Percentage Discount (20% of 100 = 20.00)
+        self.invoice.discount_type = DiscountType.PERCENTAGE
+        self.invoice.discount_value = Decimal("20.00")
+        self.invoice.save()
+        self.assertEqual(self.invoice.discount_amount, Decimal("20.00"))
+
+        # Test Fixed Discount (RM 15.00)
+        self.invoice.discount_type = DiscountType.FIXED
+        self.invoice.discount_value = Decimal("15.00")
+        self.invoice.save()
+        self.assertEqual(self.invoice.discount_amount, Decimal("15.00"))
 
 
 class InvoiceItemModelTests(TestCase):

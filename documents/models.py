@@ -60,6 +60,12 @@ class MenuItem(models.Model):
         ordering = ['name'] # Order items alphabetically by name by default
 
 
+class DiscountType(models.TextChoices):
+    NONE = 'NONE', 'No Discount'
+    PERCENTAGE = 'PERCENT', 'Percentage (%)'
+    FIXED = 'FIXED', 'Fixed Amount (RM)'
+
+
 class Quotation(models.Model):
     """
     Represents a quotation document header.
@@ -93,6 +99,17 @@ class Quotation(models.Model):
         related_name='next_versions' # How we can find V2 from V1 (V1.next_versions)
     )
 
+    discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountType.choices,
+        default=DiscountType.NONE
+    )
+
+    discount_value = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00"),
+        help_text="Enter percentage (e.g., 10.00 for 10%) or fixed amount."
+    )
+
     terms_and_conditions = models.TextField(blank=True, default='')
     notes = models.TextField(blank=True, default='', help_text="Internal notes, not shown to client")
 
@@ -104,13 +121,26 @@ class Quotation(models.Model):
         return f"Quotation {self.quotation_number} ({self.client.name})"
     
     @property
-    def total(self):
-        """Calculate the total sum of all line item totals for this quotation."""
-        # Use the related_name 'items' we defined in QuotationItem's ForeignKey
-        # Sum the 'line_total' property of each item
-        total_sum = sum(item.line_total for item in self.items.all())
-        # Ensure it's a Decimal with 2 places
-        return total_sum.quantize(Decimal("0.01"))
+    def subtotal(self):
+        """Calculate sum of all line item totals before discounts/taxes."""
+        return sum(item.line_total for item in self.items.all()).quantize(Decimal("0.01"))
+
+    @property
+    def discount_amount(self):
+        """Calculate the discount amount based on type and value."""
+        if self.discount_type == DiscountType.NONE or self.discount_value <= 0:
+            return Decimal("0.00")
+
+        sub = self.subtotal # Use the subtotal property
+        if self.discount_type == DiscountType.PERCENTAGE:
+            amount = (sub * (self.discount_value / Decimal(100))).quantize(Decimal("0.01"))
+            return amount
+        elif self.discount_type == DiscountType.FIXED:
+            amount = min(sub, self.discount_value).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+
+    
 
     class Meta:
         ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
@@ -130,8 +160,7 @@ class QuotationItem(models.Model):
     def __str__(self):
         return f"{self.quantity} x {self.menu_item.name} on {self.quotation.quotation_number}"
 
-    # We will add logic later to auto-fill description/unit_price from menu_item
-    # and a property/method to calculate line_total (quantity * unit_price)
+
     @property
     def line_total(self):
         """Calculate the total for this line item."""
@@ -178,6 +207,17 @@ class Invoice(models.Model):
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
 
+    discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountType.choices,
+        default=DiscountType.NONE
+    )
+
+    discount_value = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00"),
+        help_text="Enter percentage (e.g., 10.00 for 10%) or fixed amount."
+    )
+
     terms_and_conditions = models.TextField(blank=True, default='')
     notes = models.TextField(blank=True, default='', help_text="Internal notes")
     payment_details = models.TextField(blank=True, default='', help_text="Info like bank account, payment terms")
@@ -187,13 +227,26 @@ class Invoice(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     @property
-    def total(self):
-        """Calculate the total sum of all line item totals for this invoice."""
-        # Use the related_name 'items' from InvoiceItem's ForeignKey
-        # Sum the 'line_total' property of each item
-        total_sum = sum(item.line_total for item in self.items.all())
-        # Ensure it's a Decimal with 2 places
-        return total_sum.quantize(Decimal("0.01"))
+    def subtotal(self):
+        """Calculate sum of all line item totals before discounts/taxes."""
+        return sum(item.line_total for item in self.items.all()).quantize(Decimal("0.01"))
+
+    @property
+    def discount_amount(self):
+        """Calculate the discount amount based on type and value."""
+        if self.discount_type == DiscountType.NONE or self.discount_value <= 0:
+            return Decimal("0.00")
+
+        sub = self.subtotal # Use the subtotal property
+        if self.discount_type == DiscountType.PERCENTAGE:
+            amount = (sub * (self.discount_value / Decimal(100))).quantize(Decimal("0.01"))
+            return amount
+        elif self.discount_type == DiscountType.FIXED:
+            amount = min(sub, self.discount_value).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+
+    
 
     def __str__(self):
         num = self.invoice_number if self.invoice_number else "Draft"
@@ -201,6 +254,7 @@ class Invoice(models.Model):
 
     class Meta:
         ordering = ['-issue_date', '-created_at']
+
 
 class InvoiceItem(models.Model):
     """
@@ -229,8 +283,6 @@ class InvoiceItem(models.Model):
     class Meta:
         ordering = ['id']
 
-# We will also need to add a property 'total' to the Invoice model later,
-# similar to the Quotation model, to sum the InvoiceItem line totals.
 
 class Setting(SingletonModel):
     """
