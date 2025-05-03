@@ -243,6 +243,13 @@ class Setting(SingletonModel):
     phone = models.CharField(max_length=50, blank=True, default='')
     tax_id = models.CharField(max_length=100, blank=True, default='', verbose_name="Company Tax ID")
 
+    company_logo = models.ImageField(
+        upload_to='company_logos/', # Store logos in 'media/company_logos/' subdirectory
+        null=True,  # Allow the field to be empty in the database
+        blank=True, # Allow the field to be empty in forms/admin
+        help_text="Optional company logo."
+    )
+
     # Financial Settings
     currency_symbol = models.CharField(max_length=5, default="RM")
     tax_enabled = models.BooleanField(default=False, verbose_name="Enable Tax/SST Calculation")

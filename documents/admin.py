@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.utils.html import format_html, mark_safe
+
 
 # Register your models here.
 from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting
@@ -133,8 +135,18 @@ class SettingAdmin(SingletonModelAdmin):
     """Admin interface for the singleton Settings model."""
     # Optionally define fieldsets to organize the settings page
     fieldsets = (
-        ('Company Information', {'fields': ('company_name', 'address', 'email', 'phone', 'tax_id')}),
+        ('Company Information', {'fields': ('company_name', 'address', 'email', 'phone', 'tax_id', 'company_logo', 'logo_preview')}),
         ('Financial Settings', {'fields': ('currency_symbol', 'tax_enabled', 'tax_rate')}),
         ('Document Defaults', {'fields': ('default_payment_details', 'default_terms_conditions')}),
     )
+
+    # Make the preview read-only
+    readonly_fields = ('logo_preview',)
+
+    def logo_preview(self, obj):
+        if obj.company_logo:
+            # Render an img tag - careful with large images in admin!
+            return format_html('<img src="{}" style="max-height: 100px; max-width: 200px;" />', obj.company_logo.url)
+        return mark_safe("<em>No logo uploaded.</em>")
+    logo_preview.short_description = 'Logo Preview'
     # No list_display needed for SingletonAdmin
