@@ -1,0 +1,15 @@
+# Python / Django
+*.pyc
+__pycache__/
+venv/
+*.log
+db.sqlite3
+*.swp
+*.swo
+
+# Environment variables
+.env
+
+# IDE / Editor specific files (optional examples)
+.vscode/
+.idea/
