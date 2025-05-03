@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 # Register your models here.
-from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem
+from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting
+from solo.admin import SingletonModelAdmin # Import SoloAdmin
 
 
 @admin.register(Client)
@@ -125,3 +126,15 @@ class InvoiceAdmin(admin.ModelAdmin):
          except Exception:
              return "Error"
     display_total.short_description = 'Total Amount' # Sets the column header
+
+
+@admin.register(Setting)
+class SettingAdmin(SingletonModelAdmin):
+    """Admin interface for the singleton Settings model."""
+    # Optionally define fieldsets to organize the settings page
+    fieldsets = (
+        ('Company Information', {'fields': ('company_name', 'address', 'email', 'phone', 'tax_id')}),
+        ('Financial Settings', {'fields': ('currency_symbol', 'tax_enabled', 'tax_rate')}),
+        ('Document Defaults', {'fields': ('default_payment_details', 'default_terms_conditions')}),
+    )
+    # No list_display needed for SingletonAdmin

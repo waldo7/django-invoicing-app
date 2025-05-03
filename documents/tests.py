@@ -7,7 +7,8 @@ from datetime import date
 from .models import Client
 from .models import MenuItem
 from .models import Quotation, QuotationItem
-from .models import Invoice, InvoiceItem # Will uncomment later
+from .models import Invoice, InvoiceItem 
+from .models import Setting
 
 class ClientModelTests(TestCase):
     def test_client_creation_minimal(self):
@@ -252,7 +253,6 @@ class InvoiceModelTests(TestCase):
         self.assertEqual(self.invoice.total, Decimal("195.00"))
 
 
-
 class InvoiceItemModelTests(TestCase):
 
     @classmethod
@@ -282,3 +282,39 @@ class InvoiceItemModelTests(TestCase):
         self.assertEqual(item.grouping_label, "Group B")
 
 
+class SettingModelTests(TestCase):
+
+    def test_get_singleton_instance(self):
+        """Test that we can retrieve the singleton settings instance."""
+        settings = Setting.get_solo() # Get the single instance
+        self.assertIsInstance(settings, Setting)
+        # Check a default value
+        self.assertEqual(settings.currency_symbol, "RM")
+        self.assertFalse(settings.tax_enabled)
+
+    def test_modify_settings(self):
+        """Test modifying and saving settings."""
+        settings = Setting.get_solo()
+        settings.company_name = "My Awesome Catering Co."
+        settings.tax_enabled = True
+        settings.tax_rate = Decimal("8.00")
+        settings.save()
+
+        # Get the instance again to ensure changes were saved
+        updated_settings = Setting.get_solo()
+        self.assertEqual(updated_settings.company_name, "My Awesome Catering Co.")
+        self.assertTrue(updated_settings.tax_enabled)
+        self.assertEqual(updated_settings.tax_rate, Decimal("8.00"))
+
+    def test_singleton_enforcement(self):
+        """Test that we always get the same instance."""
+        settings1 = Setting.get_solo()
+        settings1.phone = "111-111"
+        settings1.save()
+
+        settings2 = Setting.get_solo()
+        self.assertEqual(settings2.phone, "111-111")
+        # Check they are the same object in memory (same primary key)
+        self.assertEqual(settings1.pk, settings2.pk)
+        # Creating directly should raise an error, but get_solo handles it.
+        # Trying Setting.objects.create() would likely fail if an instance exists.

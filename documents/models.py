@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings # Needed for ForeignKey to User if we add created_by later
 from django.utils import timezone # For default dates
 from decimal import Decimal
+from solo.models import SingletonModel
 
 # Create your models here.
 class Client(models.Model):
@@ -230,3 +231,39 @@ class InvoiceItem(models.Model):
 
 # We will also need to add a property 'total' to the Invoice model later,
 # similar to the Quotation model, to sum the InvoiceItem line totals.
+
+class Setting(SingletonModel):
+    """
+    Singleton model to store global application settings.
+    Accessed via Setting.get_solo()
+    """
+    company_name = models.CharField(max_length=255, default="Your Company Name")
+    address = models.TextField(blank=True, default='')
+    email = models.EmailField(blank=True, default='')
+    phone = models.CharField(max_length=50, blank=True, default='')
+    tax_id = models.CharField(max_length=100, blank=True, default='', verbose_name="Company Tax ID")
+
+    # Financial Settings
+    currency_symbol = models.CharField(max_length=5, default="RM")
+    tax_enabled = models.BooleanField(default=False, verbose_name="Enable Tax/SST Calculation")
+    tax_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, default=Decimal("6.00"), # e.g., 6.00 for 6%
+        verbose_name="Tax/SST Rate (%)",
+        help_text="Enter the rate as a percentage, e.g., 6.00 for 6%"
+    )
+
+    # Document Defaults
+    default_payment_details = models.TextField(blank=True, default='', help_text="Default payment info shown on invoices (e.g., Bank Details)")
+    default_terms_conditions = models.TextField(blank=True, default='', help_text="Default terms shown on quotes/invoices")
+
+    # Timestamps (inherited from SingletonModel perhaps, but good to have explicitly?)
+    # Singleton model doesn't have these by default, let's add them.
+    created_at = models.DateTimeField(auto_now_add=True, null=True) # Allow null for initial singleton creation if needed
+    updated_at = models.DateTimeField(auto_now=True, null=True)
+
+    def __str__(self):
+        return "Application Settings"
+
+    class Meta:
+        verbose_name = "Application Setting" # Singular name in admin
+        # verbose_name_plural = "Application Settings" # Not really needed for singleton
