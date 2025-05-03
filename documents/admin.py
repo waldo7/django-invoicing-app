@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 # Register your models here.
-from .models import Client, MenuItem, Quotation, QuotationItem
+from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem
+
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
@@ -83,3 +84,36 @@ class QuotationAdmin(admin.ModelAdmin):
 
 # Note: We don't need a separate admin registration for QuotationItem
 # because it's handled by the 'inlines' in QuotationAdmin
+
+class InvoiceItemInline(admin.TabularInline):
+    model = InvoiceItem
+    extra = 1 # Show one blank row for adding items
+    readonly_fields = ('line_total',) # Display calculated line total
+
+    # Helper to display the property in readonly_fields
+    def line_total(self, obj):
+        return obj.line_total
+    line_total.short_description = 'Line Total' # Column header
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display = ('invoice_number', 'client', 'status', 'issue_date', 'due_date') # Add display_total later
+    list_filter = ('status', 'client', 'issue_date')
+    search_fields = ('invoice_number', 'client__name', 'items__menu_item__name')
+    # Make auto-generated fields read-only
+    readonly_fields = ('invoice_number', 'created_at', 'updated_at')
+    fieldsets = (
+        # Group fields logically in the edit view
+        (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
+        ('Dates', {'fields': ('issue_date', 'due_date')}),
+        ('Content', {'fields': ('terms_and_conditions', 'payment_details', 'notes')}),
+        # Show read-only auto-generated fields in a collapsible section
+        ('System Info', {
+            'fields': ('invoice_number', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    # Embed the InvoiceItem editor
+    inlines = [InvoiceItemInline]
+
+    # We can add a display_total method here later similar to QuotationAdmin

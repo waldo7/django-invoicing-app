@@ -58,6 +58,7 @@ class MenuItem(models.Model):
     class Meta:
         ordering = ['name'] # Order items alphabetically by name by default
 
+
 class Quotation(models.Model):
     """
     Represents a quotation document header.
@@ -140,3 +141,83 @@ class QuotationItem(models.Model):
 
     class Meta:
         ordering = ['id'] # Order items by creation order within a quote
+
+
+class Invoice(models.Model):
+    """
+    Represents an invoice document header.
+    """
+    class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        SENT = 'SENT', 'Sent'
+        PAID = 'PAID', 'Paid'
+        PARTIALLY_PAID = 'PART_PAID', 'Partially Paid'
+        CANCELLED = 'CANCELLED', 'Cancelled'
+        # OVERDUE = 'OVERDUE', 'Overdue' # Maybe calculated later
+
+    invoice_number = models.CharField(
+        max_length=50,
+        unique=True,
+        blank=True, null=True, # Allow blank/null initially for auto-gen
+        editable=False         # Not editable by user
+    )
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='invoices')
+    # Link back to the source if applicable
+    related_quotation = models.ForeignKey(
+        Quotation,
+        on_delete=models.SET_NULL, # Keep invoice if quote is deleted
+        null=True, blank=True,
+        related_name='invoices'
+    )
+    # We might add related_order later when that model exists
+
+    title = models.CharField(max_length=255, blank=True, default='')
+    issue_date = models.DateField(default=timezone.now)
+    due_date = models.DateField(null=True, blank=True)
+
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+
+    terms_and_conditions = models.TextField(blank=True, default='')
+    notes = models.TextField(blank=True, default='', help_text="Internal notes")
+    payment_details = models.TextField(blank=True, default='', help_text="Info like bank account, payment terms")
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        num = self.invoice_number if self.invoice_number else "Draft"
+        return f"Invoice {num} ({self.client.name})"
+
+    class Meta:
+        ordering = ['-issue_date', '-created_at']
+
+class InvoiceItem(models.Model):
+    """
+    Represents a single line item on an Invoice.
+    """
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
+    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name='invoice_items')
+    description = models.TextField(blank=True, help_text="Defaults to menu item description, can be overridden.")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit for *this* invoice line.")
+    grouping_label = models.CharField(max_length=100, blank=True, default='')
+
+    @property
+    def line_total(self):
+        """Calculate the total for this line item."""
+        # Re-using the same logic as QuotationItem
+        if self.quantity is not None and self.unit_price is not None:
+            return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+        return Decimal("0.00")
+
+    def __str__(self):
+        # Need to handle case where invoice number might not be generated yet if accessed early
+        inv_num = self.invoice.invoice_number if self.invoice_id and self.invoice.invoice_number else "Draft Invoice"
+        return f"{self.quantity} x {self.menu_item.name} on {inv_num}"
+
+    class Meta:
+        ordering = ['id']
+
+# We will also need to add a property 'total' to the Invoice model later,
+# similar to the Quotation model, to sum the InvoiceItem line totals.

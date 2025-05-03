@@ -7,6 +7,7 @@ from datetime import date
 from .models import Client
 from .models import MenuItem
 from .models import Quotation, QuotationItem
+from .models import Invoice, InvoiceItem # Will uncomment later
 
 class ClientModelTests(TestCase):
     def test_client_creation_minimal(self):
@@ -34,6 +35,7 @@ class ClientModelTests(TestCase):
     def test_client_str_representation(self):
         client = Client.objects.create(name="String Rep Co.") 
         self.assertEqual(str(client), "String Rep Co.") 
+
 
 class MenuItemModelTests(TestCase):
 
@@ -69,6 +71,7 @@ class MenuItemModelTests(TestCase):
         """
         item = MenuItem.objects.create(name="Default Active", unit_price=Decimal("10.00"))
         self.assertTrue(item.is_active)
+
 
 class QuotationModelTests(TestCase):
 
@@ -184,3 +187,81 @@ class QuotationItemModelTests(TestCase):
             unit_price=Decimal("10.50") # 3 * 10.50 = 31.50
         )
         self.assertEqual(item.line_total, Decimal("31.50"))
+
+
+class InvoiceModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.db_client = Client.objects.create(name="Test Client for Invoices")
+        # Optional: create a quote to link to
+        cls.quote = Quotation.objects.create(client=cls.db_client, issue_date=timezone.now().date())
+        cls.quote.refresh_from_db() # Get the generated number if needed elsewhere
+
+    def test_invoice_creation(self):
+        """Test creating a basic invoice."""
+        # This test will fail until Invoice model exists & auto-numbering works
+        today = timezone.now().date()
+        due = today + timezone.timedelta(days=30)
+
+        inv = Invoice.objects.create(
+            client=self.db_client,
+            related_quotation=self.quote,
+            title="Test Invoice Title",
+            issue_date=today,
+            due_date=due,
+            terms_and_conditions="Pay up!",
+            notes="Internal note",
+            payment_details="Bank ABC 12345"
+        )
+        inv.refresh_from_db() # Need to refresh after signal runs
+
+        expected_number = f"INV-{inv.created_at.year}-{inv.pk}"
+        self.assertEqual(inv.invoice_number, expected_number)
+        self.assertEqual(inv.client, self.db_client)
+        self.assertEqual(inv.related_quotation, self.quote)
+        self.assertEqual(inv.title, "Test Invoice Title")
+        self.assertEqual(inv.issue_date, today)
+        self.assertEqual(inv.due_date, due)
+        self.assertEqual(inv.status, 'DRAFT') # Default status
+        self.assertEqual(inv.terms_and_conditions, "Pay up!")
+        self.assertEqual(inv.notes, "Internal note")
+        self.assertEqual(inv.payment_details, "Bank ABC 12345")
+
+    def test_invoice_str_representation(self):
+        """Test the string representation."""
+        # This test will fail until Invoice model exists & auto-numbering works
+        inv = Invoice.objects.create(client=self.db_client, issue_date=timezone.now().date())
+        inv.refresh_from_db()
+        expected_str = f"Invoice {inv.invoice_number} ({self.db_client.name})"
+        self.assertEqual(str(inv), expected_str)
+
+class InvoiceItemModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.client = Client.objects.create(name="Test Client for Inv Items")
+        cls.menu_item = MenuItem.objects.create(name="Test Menu Item Inv", unit_price=Decimal("20.00"))
+        cls.invoice = Invoice.objects.create(client=cls.client, issue_date=timezone.now().date())
+        # We might need cls.invoice.refresh_from_db() here if tests depend on invoice_number
+        cls.invoice.refresh_from_db()
+
+    def test_invoice_item_creation(self):
+        """Test creating an invoice line item."""
+        # This test will fail until InvoiceItem model exists
+        item = InvoiceItem.objects.create(
+            invoice=self.invoice,
+            menu_item=self.menu_item,
+            quantity=Decimal("1.5"),
+            unit_price=Decimal("25.00"), # Invoice specific price
+            description="Specific invoice description",
+            grouping_label="Group B"
+        )
+        self.assertEqual(item.invoice, self.invoice)
+        self.assertEqual(item.menu_item, self.menu_item)
+        self.assertEqual(item.quantity, Decimal("1.5"))
+        self.assertEqual(item.unit_price, Decimal("25.00"))
+        self.assertEqual(item.description, "Specific invoice description")
+        self.assertEqual(item.grouping_label, "Group B")
+
+
