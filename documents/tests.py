@@ -197,6 +197,8 @@ class InvoiceModelTests(TestCase):
         # Optional: create a quote to link to
         cls.quote = Quotation.objects.create(client=cls.db_client, issue_date=timezone.now().date())
         cls.quote.refresh_from_db() # Get the generated number if needed elsewhere
+        cls.invoice = Invoice.objects.create(client=cls.db_client, issue_date=timezone.now().date())
+        cls.invoice.refresh_from_db() # Refresh to get its number too
 
     def test_invoice_creation(self):
         """Test creating a basic invoice."""
@@ -231,10 +233,25 @@ class InvoiceModelTests(TestCase):
     def test_invoice_str_representation(self):
         """Test the string representation."""
         # This test will fail until Invoice model exists & auto-numbering works
-        inv = Invoice.objects.create(client=self.db_client, issue_date=timezone.now().date())
-        inv.refresh_from_db()
-        expected_str = f"Invoice {inv.invoice_number} ({self.db_client.name})"
-        self.assertEqual(str(inv), expected_str)
+        expected_str = f"Invoice {self.invoice.invoice_number} ({self.db_client.name})"
+        self.assertEqual(str(self.invoice), expected_str)
+
+    def test_invoice_total_calculation(self):
+        """Test the total calculation property for the invoice."""
+        # Revert back to using self.invoice
+        menu_item1 = MenuItem.objects.create(name="Item A for Inv Total", unit_price=Decimal("100.00"))
+        menu_item2 = MenuItem.objects.create(name="Item B for Inv Total", unit_price=Decimal("25.50"))
+
+        # Use self.invoice here (accessing the one from setUpTestData)
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item1, quantity=1, unit_price=Decimal("100.00")) # 100.00
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item2, quantity=2, unit_price=Decimal("25.00")) # 50.00
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item1, quantity=0.5, unit_price=Decimal("90.00")) # 45.00
+
+        # Total should be 100.00 + 50.00 + 45.00 = 195.00
+        # Use self.invoice here too
+        self.assertEqual(self.invoice.total, Decimal("195.00"))
+
+
 
 class InvoiceItemModelTests(TestCase):
 

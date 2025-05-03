@@ -97,7 +97,7 @@ class InvoiceItemInline(admin.TabularInline):
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
-    list_display = ('invoice_number', 'client', 'status', 'issue_date', 'due_date') # Add display_total later
+    list_display = ('invoice_number', 'client', 'status', 'issue_date', 'due_date', 'display_total') # Add display_total later
     list_filter = ('status', 'client', 'issue_date')
     search_fields = ('invoice_number', 'client__name', 'items__menu_item__name')
     # Make auto-generated fields read-only
@@ -117,3 +117,11 @@ class InvoiceAdmin(admin.ModelAdmin):
     inlines = [InvoiceItemInline]
 
     # We can add a display_total method here later similar to QuotationAdmin
+    def display_total(self, obj):
+         """Calculates and formats the total for display in admin list."""
+         try:
+             # Format as RM currency
+             return f"RM {obj.total:,.2f}"
+         except Exception:
+             return "Error"
+    display_total.short_description = 'Total Amount' # Sets the column header

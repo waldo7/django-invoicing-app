@@ -185,6 +185,15 @@ class Invoice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    @property
+    def total(self):
+        """Calculate the total sum of all line item totals for this invoice."""
+        # Use the related_name 'items' from InvoiceItem's ForeignKey
+        # Sum the 'line_total' property of each item
+        total_sum = sum(item.line_total for item in self.items.all())
+        # Ensure it's a Decimal with 2 places
+        return total_sum.quantize(Decimal("0.01"))
+
     def __str__(self):
         num = self.invoice_number if self.invoice_number else "Draft"
         return f"Invoice {num} ({self.client.name})"
