@@ -1,6 +1,8 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete 
 from django.dispatch import receiver
-from .models import Quotation, Invoice
+from django.apps import apps
+from decimal import Decimal
+from .models import Quotation, Payment, Invoice
 
 
 @receiver(post_save, sender=Quotation)
@@ -37,3 +39,42 @@ def generate_invoice_number(sender, instance, created, **kwargs):
         instance.invoice_number = number
         # Save the instance again, ONLY updating this field
         instance.save(update_fields=['invoice_number'])
+
+
+@receiver([post_save, post_delete], sender=Payment)
+def update_invoice_status_on_payment_change(sender, instance, **kwargs):
+    """
+    Update the related Invoice status based on payment changes.
+    """
+    try:
+        invoice = instance.invoice
+        if not invoice:
+             return
+    except Invoice.DoesNotExist:
+        return
+
+    InvoiceStatus = apps.get_model('documents', 'Invoice').Status
+
+    # Use the correct member name: PARTIALLY_PAID
+    if invoice.status in [InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED]:
+        return # Do nothing if Draft or Cancelled
+
+    amount_paid = invoice.amount_paid
+    grand_total = invoice.grand_total
+
+    new_status = invoice.status
+
+    # Use the correct member name: PARTIALLY_PAID
+    if amount_paid <= 0:
+        new_status = InvoiceStatus.SENT
+    elif amount_paid < grand_total:
+         new_status = InvoiceStatus.PARTIALLY_PAID # Corrected here
+    # Note: The logic for PAID might need refinement later depending on exact grand_total behavior
+    elif amount_paid >= grand_total and grand_total > 0:
+         new_status = InvoiceStatus.PAID
+    elif grand_total <= 0 and amount_paid >= grand_total:
+         new_status = InvoiceStatus.PAID
+
+    if new_status != invoice.status:
+        invoice.status = new_status
+        invoice.save(update_fields=['status'])

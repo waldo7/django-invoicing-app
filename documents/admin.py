@@ -108,15 +108,16 @@ class InvoiceItemInline(admin.TabularInline):
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
-    list_display = ('invoice_number', 'client', 'status', 'issue_date', 'due_date', 'display_total') # Add display_total later
+    list_display = ('invoice_number', 'client', 'status', 'issue_date', 'due_date', 'display_grand_total', 'display_balance_due')
     list_filter = ('status', 'client', 'issue_date')
     search_fields = ('invoice_number', 'client__name', 'items__menu_item__name')
     # Make auto-generated fields read-only
-    readonly_fields = ('invoice_number', 'created_at', 'updated_at')
+    readonly_fields = ('invoice_number', 'created_at', 'updated_at', 'display_amount_paid', 'display_balance_due', 'display_grand_total_detail')
     fieldsets = (
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
+        ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
         ('Discount', {'fields': ('discount_type', 'discount_value')}),
         ('Content', {'fields': ('terms_and_conditions', 'payment_details', 'notes')}),
@@ -138,6 +139,31 @@ class InvoiceAdmin(admin.ModelAdmin):
          except Exception:
              return "Error"
     display_total.short_description = 'Total Amount' # Sets the column header
+
+    def display_grand_total(self, obj): # Renamed for list view
+         """Formats grand_total for list display."""
+         try: return f"RM {obj.grand_total:,.2f}"
+         except Exception: return "Error"
+    display_grand_total.short_description = 'Total Amount'
+
+    # Need separate methods for readonly_fields as they often don't directly accept properties
+    def display_grand_total_detail(self, obj):
+         """Formats grand_total for detail view (readonly_fields)."""
+         try: return f"RM {obj.grand_total:,.2f}"
+         except Exception: return "Error"
+    display_grand_total_detail.short_description = 'Grand Total' # Header in fieldset
+
+    def display_amount_paid(self, obj):
+         """Formats amount_paid for detail view."""
+         try: return f"RM {obj.amount_paid:,.2f}"
+         except Exception: return "Error"
+    display_amount_paid.short_description = 'Amount Paid'
+
+    def display_balance_due(self, obj):
+         """Formats balance_due for list and detail view."""
+         try: return f"RM {obj.balance_due:,.2f}"
+         except Exception: return "Error"
+    display_balance_due.short_description = 'Balance Due'
 
     class Media:
         js = ('documents/js/admin_inline_autofill.js',) # Same JS file needed here too

@@ -6,6 +6,7 @@ from django.utils import timezone # For default dates
 from decimal import Decimal
 from solo.models import SingletonModel
 from django.apps import apps
+from django.db.models import Sum
 
 # Create your models here.
 class Client(models.Model):
@@ -297,6 +298,22 @@ class Invoice(models.Model):
         num = self.invoice_number if self.invoice_number else "Draft"
         return f"Invoice {num} ({self.client.name})"
     
+    
+    @property
+    def amount_paid(self):
+        """Calculate the total amount paid towards this invoice."""
+        # Sum the 'amount' field of all related Payment objects
+        # Use aggregate and handle None if no payments exist
+        paid_sum = self.payments.aggregate(total_paid=Sum('amount'))['total_paid']
+        return (paid_sum or Decimal('0.00')).quantize(Decimal("0.01"))
+
+    @property
+    def balance_due(self):
+        """Calculate the remaining balance due for this invoice."""
+        # Use grand_total property we defined earlier
+        balance = self.grand_total - self.amount_paid
+        return balance.quantize(Decimal("0.01"))
+
     
     class Meta:
         ordering = ['-issue_date', '-created_at']

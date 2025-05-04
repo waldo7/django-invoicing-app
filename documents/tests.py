@@ -366,6 +366,100 @@ class InvoiceModelTests(TestCase):
         self.assertEqual(self.invoice.tax_amount, Decimal("6.80")) # 8% tax on 85.00
         self.assertEqual(self.invoice.grand_total, Decimal("91.80")) # 85.00 + 6.80
 
+    def test_invoice_payment_calculations(self):
+        """Test amount_paid and balance_due properties."""
+        # --- Setup ---
+        # We use self.invoice created in setUpTestData
+        # Let's assume its grand_total needs calculating based on items & settings
+        # Add items to give it a non-zero total (Subtotal=100)
+        menu_item = MenuItem.objects.create(name="Item for Payment Calc", unit_price=Decimal("50.00"))
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item, quantity=2, unit_price=Decimal("50.00"))
+
+        # Assume no discount, tax disabled for simplicity here (or set them)
+        settings = Setting.get_solo()
+        settings.tax_enabled = False
+        settings.save()
+        self.invoice.discount_type = DiscountType.NONE
+        self.invoice.save()
+
+        # Expected grand_total = 100.00
+        self.assertEqual(self.invoice.grand_total, Decimal("100.00"))
+
+        # --- Test Case 1: No Payments ---
+        self.assertEqual(self.invoice.amount_paid, Decimal("0.00"))
+        self.assertEqual(self.invoice.balance_due, Decimal("100.00")) # 100 - 0
+
+        # --- Test Case 2: One Payment ---
+        Payment.objects.create(invoice=self.invoice, amount=Decimal("40.00"))
+        self.assertEqual(self.invoice.amount_paid, Decimal("40.00"))
+        self.assertEqual(self.invoice.balance_due, Decimal("60.00")) # 100 - 40
+
+        # --- Test Case 3: Multiple Payments ---
+        Payment.objects.create(invoice=self.invoice, amount=Decimal("60.00"))
+        self.assertEqual(self.invoice.amount_paid, Decimal("100.00")) # 40 + 60
+        self.assertEqual(self.invoice.balance_due, Decimal("0.00")) # 100 - 100
+
+        # --- Test Case 4: Overpayment ---
+        Payment.objects.create(invoice=self.invoice, amount=Decimal("10.00"))
+        self.assertEqual(self.invoice.amount_paid, Decimal("110.00")) # 100 + 10
+        self.assertEqual(self.invoice.balance_due, Decimal("-10.00")) # 100 - 110
+
+
+    def test_invoice_status_updates_on_payment_change(self):
+        """
+        Test that Invoice status is updated correctly via signals
+        when Payments are saved or deleted.
+        """
+        # --- Setup: Create Invoice with items (Subtotal=100), no discount/tax => Grand Total = 100 ---
+        inv = Invoice.objects.create(client=self.db_client, issue_date=date(2025, 5, 1))
+        menu_item = MenuItem.objects.create(name="Item for Status Test", unit_price=Decimal("100.00"))
+        InvoiceItem.objects.create(invoice=inv, menu_item=menu_item, quantity=1, unit_price=Decimal("100.00"))
+
+        # Manually set initial status to SENT for testing signal logic trigger
+        inv.status = Invoice.Status.SENT
+        inv.save(update_fields=['status']) # Save only status initially
+        inv.refresh_from_db() # Refresh to be sure
+
+        self.assertEqual(inv.grand_total, Decimal("100.00"))
+        self.assertEqual(inv.amount_paid, Decimal("0.00"))
+        self.assertEqual(inv.status, Invoice.Status.SENT)
+
+        # --- Stage 1: Add Partial Payment -> Status should become PART_PAID ---
+        p1 = Payment.objects.create(invoice=inv, amount=Decimal("40.00"))
+        inv.refresh_from_db() # Refresh invoice to see status update from signal
+        self.assertEqual(inv.amount_paid, Decimal("40.00"))
+        self.assertEqual(inv.status, Invoice.Status.PARTIALLY_PAID, "Status should be Partially Paid after first payment")
+
+        # --- Stage 2: Add Payment to cover total -> Status should become PAID ---
+        p2 = Payment.objects.create(invoice=inv, amount=Decimal("60.00"))
+        inv.refresh_from_db()
+        self.assertEqual(inv.amount_paid, Decimal("100.00"))
+        self.assertEqual(inv.status, Invoice.Status.PAID, "Status should be Paid after full payment")
+
+        # --- Stage 3: Delete second payment -> Status should revert to PART_PAID ---
+        p2.delete()
+        inv.refresh_from_db()
+        self.assertEqual(inv.amount_paid, Decimal("40.00"))
+        self.assertEqual(inv.status, Invoice.Status.PARTIALLY_PAID, "Status should revert to Partially Paid after deleting p2")
+
+        # --- Stage 4: Delete first payment -> Status should revert to SENT ---
+        p1.delete()
+        inv.refresh_from_db()
+        self.assertEqual(inv.amount_paid, Decimal("0.00"))
+        self.assertEqual(inv.status, Invoice.Status.SENT, "Status should revert to Sent after deleting all payments")
+
+        # --- Stage 5: Test Draft Invoice - status should NOT change ---
+        draft_inv = Invoice.objects.create(client=self.db_client, issue_date=date(2025, 5, 2), status=Invoice.Status.DRAFT)
+        Payment.objects.create(invoice=draft_inv, amount=Decimal("10.00"))
+        draft_inv.refresh_from_db()
+        self.assertEqual(draft_inv.status, Invoice.Status.DRAFT, "Draft invoice status should not change on payment")
+
+        # --- Stage 6: Test Cancelled Invoice - status should NOT change ---
+        cancelled_inv = Invoice.objects.create(client=self.db_client, issue_date=date(2025, 5, 3), status=Invoice.Status.CANCELLED)
+        Payment.objects.create(invoice=cancelled_inv, amount=Decimal("20.00"))
+        cancelled_inv.refresh_from_db()
+        self.assertEqual(cancelled_inv.status, Invoice.Status.CANCELLED, "Cancelled invoice status should not change on payment")
+
     
 class InvoiceItemModelTests(TestCase):
 
