@@ -469,3 +469,100 @@ class Payment(models.Model):
             except Invoice.DoesNotExist:
                 # Should not happen if FK constraint is working, but good practice
                 raise ValidationError("Cannot find the associated Invoice.")
+            
+
+class OrderStatus(models.TextChoices):
+    PENDING = 'PENDING', 'Pending Confirmation' # Maybe if created directly
+    CONFIRMED = 'CONFIRMED', 'Confirmed'       # Likely status after quote accepted or direct order
+    IN_PROGRESS = 'IN_PROGRESS', 'In Progress'   # Event happening
+    COMPLETED = 'COMPLETED', 'Completed'         # Event finished
+    CANCELLED = 'CANCELLED', 'Cancelled'         # Order cancelled   
+
+
+class Order(models.Model):
+    """
+    Represents a confirmed order or event booking, potentially linked from a Quotation.
+    Acts as the source for generating Invoices and Delivery Orders.
+    """
+    order_number = models.CharField(
+        max_length=50, unique=True,
+        blank=True, null=True, # For auto-generation later
+        editable=False
+    )
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='orders')
+    # Link back to the source quotation if applicable
+    related_quotation = models.ForeignKey(
+        Quotation,
+        on_delete=models.SET_NULL, # Keep order even if original quote is deleted
+        null=True, blank=True,
+        related_name='orders'
+    )
+    title = models.CharField(max_length=255, blank=True, default='', help_text="e.g., Wedding Catering June 15th")
+    status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.CONFIRMED)
+    event_date = models.DateField(null=True, blank=True, help_text="Primary date of the event/order")
+    # Add more dates later if needed e.g., event_start_datetime, event_end_datetime
+
+    # Delivery/Venue address might differ from client's main address
+    delivery_address = models.TextField(blank=True, default='')
+    notes = models.TextField(blank=True, default='', help_text="Internal notes about the order/event")
+
+    # We will add discount/tax fields later, likely copied from the accepted Quote or set here
+    # discount_type = ...
+    # discount_value = ...
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        num = self.order_number if self.order_number else "Draft Order"
+        return f"Order {num} ({self.client.name})"
+
+    class Meta:
+        ordering = ['-event_date', '-created_at']
+
+    def clean(self):
+        """
+        Add validation rules for the Order.
+        - Ensure client matches related_quotation.client if quote is linked.
+        """
+        super().clean() # Call parent's clean method
+
+        # Check client consistency if a related quotation is selected
+        if self.related_quotation_id and self.client_id: # Check if both are set
+            # Avoid fetching full objects if possible, compare IDs
+            # Or fetch the quote client ID if needed
+            try:
+                # Fetch the client ID directly associated with the related quotation
+                quote_client_id = Quotation.objects.values_list('client_id', flat=True).get(pk=self.related_quotation_id)
+                if self.client_id != quote_client_id:
+                    raise ValidationError({
+                        'client': 'Client does not match the client on the selected Quotation.',
+                        'related_quotation': 'Client on this Quotation does not match the Order client.'
+                    })
+            except Quotation.DoesNotExist:
+                # This shouldn't happen due to FK constraints but handle defensively
+                raise ValidationError("Related quotation not found.")
+
+
+class OrderItem(models.Model):
+    """
+    Represents a single line item confirmed for an Order/Event.
+    These details are typically locked in from the accepted Quotation or final agreement.
+    """
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
+    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name='order_items')
+    description = models.TextField(blank=True, help_text="Specific details for this item on this order.")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit agreed for this order.")
+    grouping_label = models.CharField(max_length=100, blank=True, default='', help_text="Optional label (e.g., 'Day 1 - Lunch')")
+
+    # We will add properties like line_total later
+
+    def __str__(self):
+        order_num = self.order.order_number if self.order_id and self.order.order_number else f"Order PK {self.order_id}"
+        # Add "Order " before {order_num}
+        return f"{self.quantity} x {self.menu_item.name} on Order {order_num}"
+
+    class Meta:
+        ordering = ['id'] # Order items by creation order within an order

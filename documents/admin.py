@@ -3,7 +3,10 @@ from django.utils.html import format_html, mark_safe
 
 
 # Register your models here.
-from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, Payment 
+from .models import (
+    Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, 
+    Setting, Payment, Order, OrderItem
+)
 from solo.admin import SingletonModelAdmin # Import SoloAdmin
 
 
@@ -219,3 +222,43 @@ class PaymentAdmin(admin.ModelAdmin):
 
     # Customize the form fields layout if needed
     # fieldsets = ( ... )
+
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 1 # Show one empty row for adding items
+    # Add readonly_fields for calculated properties later if needed (e.g., line_total)
+    # readonly_fields = ('line_total',)
+    # def line_total(self, obj): return obj.line_total
+    # line_total.short_description = 'Line Total'
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ('order_number', 'client', 'title', 'status', 'event_date', 'created_at')
+    list_filter = ('status', 'client', 'event_date')
+    search_fields = ('order_number', 'client__name', 'title', 'items__menu_item__name')
+    list_select_related = ('client',) # Optimize client lookup for list view
+    date_hierarchy = 'event_date' # Navigate by event date
+    readonly_fields = ('order_number', 'created_at', 'updated_at')
+    fieldsets = (
+        (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
+        ('Event Details', {'fields': ('event_date', 'delivery_address')}),
+        # Add Discount/Tax sections later if needed for Orders too
+        ('Notes', {'fields': ('notes',)}),
+        ('System Info', {
+            'fields': ('order_number', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    inlines = [OrderItemInline] # Embed the OrderItem editor
+
+    class Media:
+        # Use the SAME JavaScript file as Quote/Invoice inlines
+        js = ('documents/js/admin_inline_autofill.js',)
+
+
+
+
+
+
+

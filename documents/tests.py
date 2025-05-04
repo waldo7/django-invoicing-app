@@ -6,7 +6,11 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 
 # Create your tests here.
-from .models import Payment, PaymentMethod, Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, DiscountType
+from .models import (
+    Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
+    Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem, OrderStatus 
+)
+
 
 
 class ClientModelTests(TestCase):
@@ -661,3 +665,144 @@ class PaymentModelTests(TestCase):
         except ValidationError as e:
             self.fail(f"Validation failed unexpectedly for SENT invoice: {e}")
 
+
+class OrderModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.db_client  = Client.objects.create(name="Client for Orders")
+        # Create a quote to potentially link
+        cls.quote = Quotation.objects.create(client=cls.db_client , issue_date=date(2025, 5, 1))
+        cls.quote.refresh_from_db()
+
+    def test_order_creation(self):
+        """Test creating a basic order record."""
+        order_event_date = date(2025, 6, 15)
+        order = Order.objects.create(
+            client=self.db_client ,
+            related_quotation=self.quote,
+            title="Wedding Catering Order",
+            event_date=order_event_date,
+            delivery_address="123 Event Hall Lane",
+            notes="Allergic to nuts"
+            # status defaults to CONFIRMED
+        )
+        # We will test auto-numbering later
+        # order.refresh_from_db()
+
+        self.assertEqual(order.client, self.db_client )
+        self.assertEqual(order.related_quotation, self.quote)
+        self.assertEqual(order.title, "Wedding Catering Order")
+        self.assertEqual(order.status, OrderStatus.CONFIRMED) # Check default
+        self.assertEqual(order.event_date, order_event_date)
+        self.assertEqual(order.delivery_address, "123 Event Hall Lane")
+        self.assertEqual(order.notes, "Allergic to nuts")
+
+    def test_order_str_representation(self):
+        """Test the string representation includes the auto-generated number."""
+        order = Order.objects.create(client=self.db_client)
+        order.refresh_from_db() # Refresh to get the generated number
+
+        # Construct expected number based on refreshed object
+        expected_number = f"ORD-{order.created_at.year}-{order.pk}"
+        expected_str = f"Order {expected_number} ({self.db_client.name})"
+        self.assertEqual(str(order), expected_str)
+
+    def test_order_number_auto_generation(self):
+        """Test that order_number is generated correctly on first save."""
+        order = Order.objects.create(client=self.db_client)
+
+        # --- REMOVE THIS LINE ---
+        # self.assertIsNone(order.order_number)
+        # --- END REMOVE ---
+
+        # Refresh from DB to ensure we definitely have the committed value
+        order.refresh_from_db()
+
+        # Check the format (these assertions are the important ones)
+        expected_number = f"ORD-{order.created_at.year}-{order.pk}"
+        self.assertIsNotNone(order.order_number)
+        self.assertEqual(order.order_number, expected_number)
+        
+    def test_order_client_matches_quotation_client(self):
+        """
+        Test validation that Order.client must match Order.related_quotation.client.
+        """
+        # --- Setup: Create two clients and a quote for client A ---
+        client_a = self.db_client # Use the client from setup
+        client_b = Client.objects.create(name="Different Client Inc.")
+        quote_for_a = Quotation.objects.create(client=client_a, issue_date=date(2025, 5, 4))
+        quote_for_a.refresh_from_db() # Get PK if needed
+
+        # --- Scenario 1: Mismatch - Should Fail Validation ---
+        order_mismatch = Order(
+            client=client_b, # Assign Client B
+            related_quotation=quote_for_a, # Use Quote for Client A
+            event_date=date(2025, 6, 1)
+        )
+        with self.assertRaises(ValidationError) as cm:
+            order_mismatch.full_clean() # full_clean() triggers the clean() method
+
+        # Optionally check the error messages targeting the specific fields
+        self.assertIn('client', cm.exception.error_dict)
+        self.assertIn('related_quotation', cm.exception.error_dict)
+        self.assertIn("match the client", cm.exception.message_dict['client'][0])
+
+
+        # --- Scenario 2: Match - Should Pass Validation ---
+        order_match = Order(
+            client=client_a, # Assign Client A
+            related_quotation=quote_for_a, # Use Quote for Client A
+            event_date=date(2025, 6, 2)
+        )
+        try:
+            order_match.full_clean() # Should not raise ValidationError
+        except ValidationError as e:
+            self.fail(f"Validation failed unexpectedly when clients match: {e}")
+
+        # --- Scenario 3: No Quote Linked - Should Pass Validation ---
+        order_no_quote = Order(
+            client=client_a, # Assign Client A
+            related_quotation=None, # No quote linked
+            event_date=date(2025, 6, 3)
+        )
+        try:
+            order_no_quote.full_clean() # Should not raise ValidationError
+        except ValidationError as e:
+            self.fail(f"Validation failed unexpectedly when no quote is linked: {e}")
+
+class OrderItemModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.client = Client.objects.create(name="Client for Order Items")
+        cls.menu_item = MenuItem.objects.create(name="Order Item Test", unit_price=Decimal("50.00"))
+        cls.order = Order.objects.create(client=cls.client, event_date=date(2025, 7, 1))
+        # cls.order.refresh_from_db() # If needed for order number later
+
+    def test_order_item_creation(self):
+        """Test creating an order line item."""
+        item = OrderItem.objects.create(
+            order=self.order,
+            menu_item=self.menu_item,
+            description="Special instructions for order item",
+            quantity=Decimal("10"),
+            unit_price=Decimal("48.00"), # Agreed price for the order
+            grouping_label="Main Course"
+        )
+        self.assertEqual(item.order, self.order)
+        self.assertEqual(item.menu_item, self.menu_item)
+        self.assertEqual(item.description, "Special instructions for order item")
+        self.assertEqual(item.quantity, Decimal("10"))
+        self.assertEqual(item.unit_price, Decimal("48.00"))
+        self.assertEqual(item.grouping_label, "Main Course")
+
+    def test_order_item_str_representation(self):
+        """Test the string representation."""
+        # self.order is created in setUpTestData and refreshed there
+        item = OrderItem.objects.create(
+            order=self.order, menu_item=self.menu_item, quantity=5, unit_price=50
+        )
+        # Use the actual order number now
+        expected_str = f"5 x Order Item Test on Order {self.order.order_number}"
+        self.assertEqual(str(item), expected_str)

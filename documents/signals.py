@@ -2,7 +2,7 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.apps import apps
 from decimal import Decimal
-from .models import Quotation, Payment, Invoice
+from .models import Quotation, Payment, Invoice, Order 
 
 
 @receiver(post_save, sender=Quotation)
@@ -78,3 +78,27 @@ def update_invoice_status_on_payment_change(sender, instance, **kwargs):
     if new_status != invoice.status:
         invoice.status = new_status
         invoice.save(update_fields=['status'])
+
+
+@receiver(post_save, sender=Order)
+def generate_order_number(sender, instance, created, **kwargs):
+    """
+    Generate an order number automatically after an Order is first created.
+    Format: ORD-YYYY-ID
+    """
+    if created and not instance.order_number:
+        # Ensure created_at is available (should be due to auto_now_add)
+        # Default to current year if created_at isn't set yet (unlikely)
+        year = instance.created_at.year if instance.created_at else timezone.now().year
+        pk = instance.pk
+        # Format the number
+        number = f"ORD-{year}-{pk}"
+        # Assign it to the instance
+        instance.order_number = number
+        # Save the instance again, ONLY updating this field
+        instance.save(update_fields=['order_number'])
+
+
+
+
+
