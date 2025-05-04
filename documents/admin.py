@@ -151,11 +151,13 @@ class InvoiceAdmin(admin.ModelAdmin):
     readonly_fields = (
         'invoice_number', 'created_at', 'updated_at', 
         'display_amount_paid', 'display_balance_due', 'display_grand_total_detail',
-        'related_order'
+        'related_order',
+        'view_pdf_link'
         )
     fieldsets = (
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'related_order', 'title', 'status')}),
+        ('Actions', {'fields': ('view_pdf_link',)}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
         ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
@@ -195,6 +197,16 @@ class InvoiceAdmin(admin.ModelAdmin):
          try: return f"RM {obj.balance_due:,.2f}"
          except Exception: return "Error"
     display_balance_due.short_description = 'Balance Due'
+
+    def view_pdf_link(self, obj):
+        """Generate a 'View PDF' button link for the Invoice."""
+        if obj.pk: # Check if the object has been saved
+             # Generate URL for the PDF view
+             url = reverse('documents:invoice_pdf', args=[obj.pk])
+             # Return HTML for a link styled as button, opening in new tab
+             return format_html('<a href="{}" class="button" target="_blank">View PDF</a>', url)
+        return mark_safe("<em>(Save invoice first to view PDF)</em>")
+    view_pdf_link.short_description = 'PDF Action' # Label for the fieldset section
 
     class Media:
         js = ('documents/js/admin_inline_autofill.js',) # Same JS file needed here too

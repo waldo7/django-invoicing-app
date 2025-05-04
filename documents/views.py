@@ -18,7 +18,7 @@ except ImportError:
     print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
-from .models import Order, MenuItem, Quotation, Setting
+from .models import Order, MenuItem, Quotation, Setting, Invoice
 
 # Create your views here.
 def get_menu_item_details(request, pk):
@@ -159,6 +159,61 @@ def generate_quotation_pdf(request, pk):
         messages.error(request, f"An error occurred while generating the PDF: {e}")
         # Redirect back to the quotation detail page
         admin_url = reverse('admin:documents_quotation_change', args=[pk])
+        return redirect(admin_url)
+
+
+@staff_member_required
+def generate_invoice_pdf(request, pk):
+    """
+    View to generate and return a PDF representation of an Invoice.
+    """
+    if not weasyprint:
+        return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
+
+    try:
+        invoice = get_object_or_404(Invoice, pk=pk)
+        settings = Setting.get_solo()
+        items = invoice.items.all() # Use related_name 'items'
+
+        # Prepare context for the template
+        context = {
+            'invoice': invoice,
+            'items': items,
+            'settings': settings,
+        }
+
+        # Render the HTML template to a string
+        # Make sure this matches the template file path we created
+        html_string = render_to_string('documents/pdf/invoice_pdf.html', context)
+
+        # Generate PDF using WeasyPrint
+        html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
+        pdf_file = html.write_pdf()
+
+        # Create the HTTP response
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+
+        # Set filename
+        filename = f"Invoice-{invoice.invoice_number or invoice.pk}.pdf"
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+
+        return response
+
+    except Invoice.DoesNotExist:
+        raise Http404("Invoice not found.")
+    except Setting.DoesNotExist:
+         messages.error(request, "Application settings have not been configured in the admin.")
+         # Redirect back to the invoice detail page if possible
+         try:
+             admin_url = reverse('admin:documents_invoice_change', args=[pk])
+             return redirect(admin_url)
+         except: # Fallback if pk doesn't exist or other error
+             return redirect('admin:index') # Redirect to main admin page
+    except Exception as e:
+        print(f"Error generating PDF for Invoice {pk}: {e}") # Log the error
+        messages.error(request, f"An error occurred while generating the PDF: {e}")
+        # Redirect back to the invoice detail page
+        admin_url = reverse('admin:documents_invoice_change', args=[pk])
         return redirect(admin_url)
 
 

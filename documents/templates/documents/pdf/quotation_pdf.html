@@ -98,7 +98,7 @@
         <tr>
             <td class="company-details">
                 {% if settings.company_logo %}
-                    <img src="{{ settings.company_logo.path }}" class="logo" alt="Company Logo"><br>
+                    <img src="{{ settings.company_logo.url }}" class="logo" alt="Company Logo"><br>
                 {% endif %}
                 <strong>{{ settings.company_name }}</strong><br>
                 {{ settings.address|linebreaksbr }}<br> {# Use linebreaksbr filter for address #}
