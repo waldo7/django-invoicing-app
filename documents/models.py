@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator # To ensure amount is positive
 from datetime import timedelta # Needed for adding days to a date
 from django.db import models
 from django.conf import settings # Needed for ForeignKey to User if we add created_by later
@@ -375,3 +376,57 @@ class Setting(SingletonModel):
     class Meta:
         verbose_name = "Application Setting" # Singular name in admin
         # verbose_name_plural = "Application Settings" # Not really needed for singleton
+
+
+class PaymentMethod(models.TextChoices):
+    BANK_TRANSFER = 'BANK', 'Bank Transfer'
+    CASH = 'CASH', 'Cash'
+    CHEQUE = 'CHEQUE', 'Cheque'
+    CREDIT_CARD = 'CARD', 'Credit Card'
+    ONLINE = 'ONLINE', 'Online Payment Gateway'
+    OTHER = 'OTHER', 'Other'
+
+
+class Payment(models.Model):
+    """
+    Represents a payment received for an Invoice.
+    """
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT, # Prevent deleting invoice if payments exist? Or CASCADE? Let's use PROTECT.
+        related_name='payments'
+    )
+    payment_date = models.DateField(default=timezone.now)
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))] # Ensure positive amount
+    )
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PaymentMethod.choices,
+        blank=True, null=True # Make method optional for flexibility
+    )
+    reference_number = models.CharField(
+        max_length=100, blank=True, default='',
+        help_text="E.g., Transaction ID, Cheque No."
+    )
+    notes = models.TextField(blank=True, default='', help_text="Internal notes about the payment")
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        # Try to show invoice number, default to PK if number not generated yet (unlikely here)
+        inv_num = self.invoice.invoice_number if self.invoice_id and self.invoice.invoice_number else f"Invoice PK {self.invoice_id}"
+        # Format amount using settings currency eventually? For now, hardcode RM.
+        try:
+             # settings = Setting.get_solo() # Could fetch settings here if needed
+             currency = "RM" # Hardcode for now
+        except:
+             currency = ""
+        return f"Payment of {currency} {self.amount} for Invoice {inv_num} on {self.payment_date}"
+
+    class Meta:
+        ordering = ['-payment_date', '-created_at']

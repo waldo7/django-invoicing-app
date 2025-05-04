@@ -3,7 +3,7 @@ from django.utils.html import format_html, mark_safe
 
 
 # Register your models here.
-from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting
+from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, Payment 
 from solo.admin import SingletonModelAdmin # Import SoloAdmin
 
 
@@ -25,6 +25,7 @@ class MenuItemAdmin(admin.ModelAdmin):
     search_fields = ('name', 'description', 'unit')
     list_editable = ('unit_price', 'unit', 'is_active') # Allows editing these directly in the list view
 
+
 class QuotationItemInline(admin.TabularInline): # Or use admin.StackedInline for a different layout
     """
     Allows editing QuotationItems directly within the Quotation admin page.
@@ -36,6 +37,7 @@ class QuotationItemInline(admin.TabularInline): # Or use admin.StackedInline for
 
     def line_total(self, obj):
         return obj.line_total 
+
 
 @admin.register(Quotation)
 class QuotationAdmin(admin.ModelAdmin):
@@ -93,7 +95,6 @@ class QuotationAdmin(admin.ModelAdmin):
         js = ('documents/js/admin_inline_autofill.js',) # Note the comma to make it a tuple
 
 
-
 class InvoiceItemInline(admin.TabularInline):
     model = InvoiceItem
     extra = 1 # Show one blank row for adding items
@@ -103,6 +104,7 @@ class InvoiceItemInline(admin.TabularInline):
     def line_total(self, obj):
         return obj.line_total
     line_total.short_description = 'Line Total' # Column header
+
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
@@ -161,3 +163,18 @@ class SettingAdmin(SingletonModelAdmin):
         return mark_safe("<em>No logo uploaded.</em>")
     logo_preview.short_description = 'Logo Preview'
     # No list_display needed for SingletonAdmin
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+    list_display = ('invoice', 'payment_date', 'amount', 'payment_method', 'reference_number', 'created_at')
+    list_filter = ('payment_date', 'payment_method', 'invoice__client') # Filter by client via invoice relationship
+    search_fields = ('invoice__invoice_number', 'invoice__client__name', 'reference_number', 'notes') # Search related invoice/client
+    list_select_related = ('invoice', 'invoice__client') # Optimize fetching related data for list view
+    date_hierarchy = 'payment_date' # Adds date drill-down navigation
+
+    # Make amount read-only after creation? Maybe not needed yet.
+    # readonly_fields = ('created_at', 'updated_at')
+
+    # Customize the form fields if needed
+    # fieldsets = ( ... )

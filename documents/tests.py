@@ -2,9 +2,11 @@ from django.test import TestCase
 from decimal import Decimal
 from django.utils import timezone
 from datetime import date, timedelta
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 
 # Create your tests here.
-from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, DiscountType
+from .models import Payment, PaymentMethod, Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, DiscountType
 
 
 class ClientModelTests(TestCase):
@@ -431,3 +433,74 @@ class SettingModelTests(TestCase):
         self.assertEqual(settings1.pk, settings2.pk)
         # Creating directly should raise an error, but get_solo handles it.
         # Trying Setting.objects.create() would likely fail if an instance exists.
+
+
+class PaymentModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        # Create objects needed for payment tests
+        cls.client = Client.objects.create(name="Client for Payments")
+        # Create an invoice, explicitly setting issue date as it's now required before save
+        cls.invoice = Invoice.objects.create(client=cls.client, issue_date=date(2025, 5, 1))
+        cls.invoice.refresh_from_db() # Ensure invoice number is generated if needed
+
+    def test_payment_creation(self):
+        """Test creating a payment record with all fields."""
+        today = timezone.now().date()
+        payment = Payment.objects.create(
+            invoice=self.invoice,
+            payment_date=today,
+            amount=Decimal("100.50"),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            reference_number="TXN12345",
+            notes="Partial payment received."
+        )
+        self.assertEqual(payment.invoice, self.invoice)
+        self.assertEqual(payment.payment_date, today)
+        self.assertEqual(payment.amount, Decimal("100.50"))
+        self.assertEqual(payment.payment_method, PaymentMethod.BANK_TRANSFER)
+        self.assertEqual(payment.reference_number, "TXN12345")
+        self.assertEqual(payment.notes, "Partial payment received.")
+
+    def test_payment_date_default(self):
+        """Test that payment_date defaults to today."""
+        today = timezone.now().date()
+        # Create payment without specifying payment_date
+        payment = Payment.objects.create(
+            invoice=self.invoice,
+            amount=Decimal("50.00")
+        )
+        payment.refresh_from_db()
+        self.assertEqual(payment.payment_date, today)
+
+    def test_amount_validation_positive(self):
+        """Test that the amount must be positive."""
+        # Test zero amount
+        with self.assertRaises(ValidationError):
+            payment_zero = Payment(invoice=self.invoice, amount=Decimal("0.00"))
+            payment_zero.full_clean() # full_clean() runs model validation
+
+        # Test negative amount
+        with self.assertRaises(ValidationError):
+            payment_neg = Payment(invoice=self.invoice, amount=Decimal("-10.00"))
+            payment_neg.full_clean()
+
+        # Test valid amount (should not raise error)
+        try:
+            payment_ok = Payment(invoice=self.invoice, amount=Decimal("0.01"))
+            payment_ok.full_clean()
+        except ValidationError:
+            self.fail("Positive amount validation failed unexpectedly.")
+
+    def test_payment_str_representation(self):
+        """Test the string representation of the payment."""
+        payment_date=date(2025, 5, 4) # Use a fixed date for predictable string
+        payment = Payment.objects.create(
+            invoice=self.invoice,
+            payment_date=payment_date,
+            amount=Decimal("75.25")
+        )
+        # Using RM as hardcoded in __str__ for now
+        expected_str = f"Payment of RM 75.25 for Invoice {self.invoice.invoice_number} on 2025-05-04"
+        self.assertEqual(str(payment), expected_str)
