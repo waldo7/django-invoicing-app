@@ -383,6 +383,11 @@ class Setting(SingletonModel):
         help_text="Default number of days a quote/invoice is valid from the issue date."
     )
 
+    default_payment_terms_days = models.PositiveIntegerField(
+        default=30, # Default to 30 days for invoice payment
+        help_text="Default number of days until an invoice payment is due from the issue date."
+    )
+
     # Timestamps (inherited from SingletonModel perhaps, but good to have explicitly?)
     # Singleton model doesn't have these by default, let's add them.
     created_at = models.DateTimeField(auto_now_add=True, null=True) # Allow null for initial singleton creation if needed

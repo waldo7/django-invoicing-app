@@ -504,6 +504,7 @@ class SettingModelTests(TestCase):
         self.assertEqual(settings.currency_symbol, "RM")
         self.assertFalse(settings.tax_enabled)
         self.assertEqual(settings.default_validity_days, 15) # Check new default
+        self.assertEqual(settings.default_payment_terms_days, 30) # Check new default (adjust if you chose a different default)
 
     def test_modify_settings(self):
         """Test modifying and saving settings."""
@@ -771,6 +772,7 @@ class OrderModelTests(TestCase):
         except ValidationError as e:
             self.fail(f"Validation failed unexpectedly when no quote is linked: {e}")
 
+
 class OrderItemModelTests(TestCase):
 
     @classmethod
@@ -806,3 +808,11 @@ class OrderItemModelTests(TestCase):
         # Use the actual order number now
         expected_str = f"5 x Order Item Test on Order {self.order.order_number}"
         self.assertEqual(str(item), expected_str)
+
+
+
+
+
+
+
+

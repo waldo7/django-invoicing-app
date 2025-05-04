@@ -170,7 +170,12 @@ class SettingAdmin(SingletonModelAdmin):
     fieldsets = (
         ('Company Information', {'fields': ('company_name', 'address', 'email', 'phone', 'tax_id', 'company_logo', 'logo_preview')}),
         ('Financial Settings', {'fields': ('currency_symbol', 'tax_enabled', 'tax_rate')}),
-        ('Document Defaults', {'fields': ('default_payment_details', 'default_terms_conditions')}),
+        ('Document Defaults', {'fields': (
+            'default_payment_details', 
+            'default_terms_conditions',
+            'default_validity_days',
+            'default_payment_terms_days',
+            )}),
     )
 
     # Make the preview read-only
@@ -232,6 +237,7 @@ class OrderItemInline(admin.TabularInline):
     # def line_total(self, obj): return obj.line_total
     # line_total.short_description = 'Line Total'
 
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     list_display = ('order_number', 'client', 'title', 'status', 'event_date', 'created_at')
@@ -255,6 +261,9 @@ class OrderAdmin(admin.ModelAdmin):
     class Media:
         # Use the SAME JavaScript file as Quote/Invoice inlines
         js = ('documents/js/admin_inline_autofill.js',)
+
+
+
 
 
 
