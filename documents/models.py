@@ -1,3 +1,4 @@
+from datetime import timedelta # Needed for adding days to a date
 from django.db import models
 from django.conf import settings # Needed for ForeignKey to User if we add created_by later
 from django.utils import timezone # For default dates
@@ -87,7 +88,7 @@ class Quotation(models.Model):
         )
     client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='quotations')
     title = models.CharField(max_length=255, blank=True, default='')
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField()
     valid_until = models.DateField(null=True, blank=True) # Optional
 
     status = models.CharField(max_length=15, choices=Status.choices, default=Status.DRAFT)
@@ -162,10 +163,29 @@ class Quotation(models.Model):
         """Calculate the final total including discounts and tax."""
         return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
 
+    def save(self, *args, **kwargs):
+        # Check if this is a new instance being created AND valid_until is not already set
+        if not self.pk and self.valid_until is None:
+            try:
+                # Dynamically get the Setting model to avoid direct import issues
+                Setting = apps.get_model('documents', 'Setting')
+                settings = Setting.get_solo()
+                # Safely get validity days, defaulting to 0 if not set or model doesn't exist yet
+                validity_days = getattr(settings, 'default_validity_days', 0)
+
+                if validity_days > 0 and self.issue_date: # Check validity_days > 0 and issue_date is set
+                    self.valid_until = self.issue_date + timedelta(days=validity_days)
+
+            except Setting.DoesNotExist:
+                 # Handle case where Settings object hasn't been created yet
+                 pass # Or log a warning: print("Warning: Settings object not found, cannot set default valid_until.")
+
+        super().save(*args, **kwargs) # Call the original save method AFTER potentially setting valid_until
+
     class Meta:
         ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
 
-
+    
 class QuotationItem(models.Model):
     """
     Represents a single line item on a Quotation.
@@ -222,8 +242,9 @@ class Invoice(models.Model):
     # We might add related_order later when that model exists
 
     title = models.CharField(max_length=255, blank=True, default='')
-    issue_date = models.DateField(default=timezone.now)
+    issue_date = models.DateField()
     due_date = models.DateField(null=True, blank=True)
+    valid_until = models.DateField(null=True, blank=True) # Optional validity date
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
 
@@ -293,6 +314,25 @@ class Invoice(models.Model):
     def __str__(self):
         num = self.invoice_number if self.invoice_number else "Draft"
         return f"Invoice {num} ({self.client.name})"
+    
+    def save(self, *args, **kwargs):
+        # Check if this is a new instance being created AND valid_until is not already set
+        if not self.pk and self.valid_until is None:
+            try:
+                # Dynamically get the Setting model to avoid direct import issues
+                Setting = apps.get_model('documents', 'Setting')
+                settings = Setting.get_solo()
+                # Safely get validity days, defaulting to 0 if not set or model doesn't exist yet
+                validity_days = getattr(settings, 'default_validity_days', 0)
+
+                if validity_days > 0 and self.issue_date: # Check validity_days > 0 and issue_date is set
+                    self.valid_until = self.issue_date + timedelta(days=validity_days)
+
+            except Setting.DoesNotExist:
+                 # Handle case where Settings object hasn't been created yet
+                 pass # Or log a warning
+
+        super().save(*args, **kwargs) # Call the original save method AFTER potentially setting valid_until
 
     class Meta:
         ordering = ['-issue_date', '-created_at']
@@ -356,6 +396,10 @@ class Setting(SingletonModel):
     # Document Defaults
     default_payment_details = models.TextField(blank=True, default='', help_text="Default payment info shown on invoices (e.g., Bank Details)")
     default_terms_conditions = models.TextField(blank=True, default='', help_text="Default terms shown on quotes/invoices")
+    default_validity_days = models.PositiveIntegerField(
+        default=15, # Default to 15 days
+        help_text="Default number of days a quote/invoice is valid from the issue date."
+    )
 
     # Timestamps (inherited from SingletonModel perhaps, but good to have explicitly?)
     # Singleton model doesn't have these by default, let's add them.

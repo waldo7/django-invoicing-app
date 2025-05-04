@@ -87,8 +87,12 @@ class QuotationAdmin(admin.ModelAdmin):
     # Embed the item editor within the quote page
     inlines = [QuotationItemInline]
 
-# Note: We don't need a separate admin registration for QuotationItem
-# because it's handled by the 'inlines' in QuotationAdmin
+    class Media:
+        # List of JS files to include on the admin change/add pages
+        # Path is relative to your STATIC files setup
+        js = ('documents/js/admin_inline_autofill.js',) # Note the comma to make it a tuple
+
+
 
 class InvoiceItemInline(admin.TabularInline):
     model = InvoiceItem
@@ -132,6 +136,9 @@ class InvoiceAdmin(admin.ModelAdmin):
          except Exception:
              return "Error"
     display_total.short_description = 'Total Amount' # Sets the column header
+
+    class Media:
+        js = ('documents/js/admin_inline_autofill.js',) # Same JS file needed here too
 
 
 @admin.register(Setting)

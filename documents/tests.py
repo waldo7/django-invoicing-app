@@ -1,7 +1,7 @@
 from django.test import TestCase
 from decimal import Decimal
 from django.utils import timezone
-from datetime import date
+from datetime import date, timedelta
 
 # Create your tests here.
 from .models import Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, Setting, DiscountType
@@ -202,6 +202,38 @@ class QuotationModelTests(TestCase):
         self.assertEqual(quote.tax_amount, Decimal("5.40"))      # 6% tax on 90.00
         self.assertEqual(quote.grand_total, Decimal("95.40"))    # 90.00 + 5.40
 
+    def test_default_valid_until_calculation(self):
+        """
+        Test that valid_until is set automatically based on settings
+        if it's not provided on creation.
+        """
+        # --- Setup: Set a specific validity period in Settings ---
+        settings = Setting.get_solo()
+        settings.default_validity_days = 20 # Use 20 days for this test
+        settings.save()
+
+        test_issue_date = date(2025, 6, 10)
+        expected_valid_until = test_issue_date + timedelta(days=20) # June 30th
+
+        # --- Test Case 1: valid_until is NOT provided ---
+        quote_auto = Quotation.objects.create(
+            client=self.db_client,
+            issue_date=test_issue_date
+            # valid_until is omitted
+        )
+        # Check if the save() method calculated it correctly
+        self.assertEqual(quote_auto.valid_until, expected_valid_until)
+
+        # --- Test Case 2: valid_until IS provided ---
+        manual_valid_until = test_issue_date + timedelta(days=5) # Set manually to 5 days
+        quote_manual = Quotation.objects.create(
+            client=self.db_client,
+            issue_date=test_issue_date,
+            valid_until=manual_valid_until # Explicitly set
+        )
+        # Check that the manually provided date was respected
+        self.assertEqual(quote_manual.valid_until, manual_valid_until)
+
 
 class QuotationItemModelTests(TestCase):
 
@@ -364,6 +396,39 @@ class InvoiceModelTests(TestCase):
         self.assertEqual(self.invoice.tax_amount, Decimal("6.80")) # 8% tax on 85.00
         self.assertEqual(self.invoice.grand_total, Decimal("91.80")) # 85.00 + 6.80
 
+    def test_default_valid_until_calculation(self):
+        """
+        Test that valid_until is set automatically based on settings
+        if it's not provided on creation for Invoices.
+        """
+        # --- Setup: Set a specific validity period in Settings ---
+        settings = Setting.get_solo()
+        settings.default_validity_days = 10 # Use 10 days for this test
+        settings.save()
+
+        test_issue_date = date(2025, 7, 1)
+        expected_valid_until = test_issue_date + timedelta(days=10) # July 11th
+
+        # --- Test Case 1: valid_until is NOT provided ---
+        invoice_auto = Invoice.objects.create(
+            client=self.db_client,
+            issue_date=test_issue_date
+            # valid_until is omitted
+        )
+        # Check if the save() method calculated it correctly
+        self.assertEqual(invoice_auto.valid_until, expected_valid_until)
+
+        # --- Test Case 2: valid_until IS provided ---
+        manual_valid_until = test_issue_date + timedelta(days=90) # Set manually to 90 days
+        invoice_manual = Invoice.objects.create(
+            client=self.db_client,
+            issue_date=test_issue_date,
+            valid_until=manual_valid_until # Explicitly set
+        )
+        # Check that the manually provided date was respected
+        self.assertEqual(invoice_manual.valid_until, manual_valid_until)
+
+
 class InvoiceItemModelTests(TestCase):
 
     @classmethod
@@ -402,6 +467,7 @@ class SettingModelTests(TestCase):
         # Check a default value
         self.assertEqual(settings.currency_symbol, "RM")
         self.assertFalse(settings.tax_enabled)
+        self.assertEqual(settings.default_validity_days, 15) # Check new default
 
     def test_modify_settings(self):
         """Test modifying and saving settings."""
