@@ -79,7 +79,7 @@ class QuotationAdmin(admin.ModelAdmin):
          # Format it nicely for display (optional, but good)
          try:
              # Format as currency, you might need locale settings or a formatting library later
-             return f"RM {obj.total:,.2f}"
+             return f"RM {obj.grand_total:,.2f}"
          except Exception:
              return "Error" # Handle potential calculation errors gracefully
     display_total.short_description = 'Total Amount' # Column header
@@ -128,7 +128,7 @@ class InvoiceAdmin(admin.ModelAdmin):
          """Calculates and formats the total for display in admin list."""
          try:
              # Format as RM currency
-             return f"RM {obj.total:,.2f}"
+             return f"RM {obj.grand_total:,.2f}"
          except Exception:
              return "Error"
     display_total.short_description = 'Total Amount' # Sets the column header

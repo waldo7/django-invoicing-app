@@ -3,6 +3,7 @@ from django.conf import settings # Needed for ForeignKey to User if we add creat
 from django.utils import timezone # For default dates
 from decimal import Decimal
 from solo.models import SingletonModel
+from django.apps import apps
 
 # Create your models here.
 class Client(models.Model):
@@ -123,7 +124,7 @@ class Quotation(models.Model):
     @property
     def subtotal(self):
         """Calculate sum of all line item totals before discounts/taxes."""
-        return sum(item.line_total for item in self.items.all()).quantize(Decimal("0.01"))
+        return sum((item.line_total for item in self.items.all()), Decimal('0.00')).quantize(Decimal("0.01"))
 
     @property
     def discount_amount(self):
@@ -140,7 +141,26 @@ class Quotation(models.Model):
             return amount
         return Decimal("0.00")
 
-    
+    @property
+    def total_before_tax(self):
+        """Calculate total after discount but before tax."""
+        return (self.subtotal - self.discount_amount).quantize(Decimal("0.01"))
+
+    @property
+    def tax_amount(self):
+        """Calculate tax amount based on settings and total_before_tax."""
+        Setting = apps.get_model('documents', 'Setting')
+        settings = Setting.get_solo()
+        if settings.tax_enabled and settings.tax_rate > 0:
+            tax_rate = settings.tax_rate / Decimal(100) # e.g., 6.00 -> 0.06
+            amount = (self.total_before_tax * tax_rate).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+
+    @property
+    def grand_total(self):
+        """Calculate the final total including discounts and tax."""
+        return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
 
     class Meta:
         ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
@@ -229,7 +249,9 @@ class Invoice(models.Model):
     @property
     def subtotal(self):
         """Calculate sum of all line item totals before discounts/taxes."""
-        return sum(item.line_total for item in self.items.all()).quantize(Decimal("0.01"))
+        #return sum(item.line_total for item in self.items.all()).quantize(Decimal("0.01"))
+        return sum((item.line_total for item in self.items.all()), Decimal('0.00')).quantize(Decimal("0.01"))
+
 
     @property
     def discount_amount(self):
@@ -246,7 +268,27 @@ class Invoice(models.Model):
             return amount
         return Decimal("0.00")
 
-    
+    @property
+    def total_before_tax(self):
+        """Calculate total after discount but before tax."""
+        return (self.subtotal - self.discount_amount).quantize(Decimal("0.01"))
+
+    @property
+    def tax_amount(self):
+        """Calculate tax amount based on settings and total_before_tax."""
+        Setting = apps.get_model('documents', 'Setting')
+
+        settings = Setting.get_solo()
+        if settings.tax_enabled and settings.tax_rate > 0:
+            tax_rate = settings.tax_rate / Decimal(100)
+            amount = (self.total_before_tax * tax_rate).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+
+    @property
+    def grand_total(self):
+        """Calculate the final total including discounts and tax."""
+        return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
 
     def __str__(self):
         num = self.invoice_number if self.invoice_number else "Draft"

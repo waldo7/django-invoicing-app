@@ -168,6 +168,40 @@ class QuotationModelTests(TestCase):
         quote.save()
         self.assertEqual(quote.discount_amount, Decimal("160.00")) # Should cap at subtotal
 
+    def test_quotation_tax_and_grand_total(self):
+        """Test tax amount and grand total calculations."""
+        # --- Setup ---
+        quote = Quotation.objects.create(client=self.db_client, issue_date=timezone.now().date())
+        menu_item = MenuItem.objects.create(name="Item for Tax Test", unit_price=Decimal("100.00"))
+        # Add items: Subtotal = 100.00
+        QuotationItem.objects.create(quotation=quote, menu_item=menu_item, quantity=1, unit_price=Decimal("100.00"))
+
+        # Add Discount: 10% = 10.00 discount. Total before tax = 90.00
+        quote.discount_type = DiscountType.PERCENTAGE
+        quote.discount_value = Decimal("10.00")
+        quote.save() # Save discount settings
+
+        settings = Setting.get_solo() # Get settings instance
+
+        # --- Test Case 1: Tax Disabled ---
+        settings.tax_enabled = False
+        settings.tax_rate = Decimal("6.00") # Rate doesn't matter if disabled
+        settings.save()
+
+        self.assertEqual(quote.total_before_tax, Decimal("90.00")) # Subtotal - Discount
+        self.assertEqual(quote.tax_amount, Decimal("0.00"))     # Tax should be 0
+        self.assertEqual(quote.grand_total, Decimal("90.00"))   # Grand total = total before tax
+
+        # --- Test Case 2: Tax Enabled (6% of 90.00 = 5.40) ---
+        settings.tax_enabled = True
+        settings.tax_rate = Decimal("6.00")
+        settings.save()
+
+        # Need to reload quote maybe? Or does property re-fetch settings? Let's assume it fetches.
+        self.assertEqual(quote.total_before_tax, Decimal("90.00")) # Should be unchanged
+        self.assertEqual(quote.tax_amount, Decimal("5.40"))      # 6% tax on 90.00
+        self.assertEqual(quote.grand_total, Decimal("95.40"))    # 90.00 + 5.40
+
 
 class QuotationItemModelTests(TestCase):
 
@@ -288,6 +322,47 @@ class InvoiceModelTests(TestCase):
         self.invoice.save()
         self.assertEqual(self.invoice.discount_amount, Decimal("15.00"))
 
+    def test_invoice_tax_and_grand_total(self):
+        """Test tax amount and grand total calculations for invoice."""
+        # --- Setup ---
+
+        # --- Add Invoice Items first! ---
+        # Need items that sum to 100.00 for the assertions below to make sense.
+        menu_item = MenuItem.objects.create(name="Item for Inv Tax Test", unit_price=Decimal("50.00"))
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item, quantity=1, unit_price=Decimal("60.00")) # 60.00
+        InvoiceItem.objects.create(invoice=self.invoice, menu_item=menu_item, quantity=2, unit_price=Decimal("20.00")) # 40.00
+        # Subtotal should now be 100.00 for self.invoice
+
+        # Now apply discount: Fixed RM 15.00. Total before tax = 85.00
+        self.invoice.discount_type = DiscountType.FIXED
+        self.invoice.discount_value = Decimal("15.00")
+        self.invoice.save()
+
+        settings = Setting.get_solo()
+
+        # --- Test Case 1: Tax Disabled ---
+        settings.tax_enabled = False
+        settings.tax_rate = Decimal("8.00") # Rate doesn't matter
+        settings.save()
+
+        # Refresh invoice object IF discount save might affect calculated properties? Unlikely needed but safe.
+        # self.invoice.refresh_from_db()
+
+        self.assertEqual(self.invoice.total_before_tax, Decimal("85.00")) # 100 - 15
+        self.assertEqual(self.invoice.tax_amount, Decimal("0.00"))
+        self.assertEqual(self.invoice.grand_total, Decimal("85.00"))
+
+        # --- Test Case 2: Tax Enabled (8% of 85.00 = 6.80) ---
+        settings.tax_enabled = True
+        settings.tax_rate = Decimal("8.00")
+        settings.save()
+
+        # Refreshing invoice again might be needed if property caching is complex, but try without first.
+        # self.invoice.refresh_from_db()
+
+        self.assertEqual(self.invoice.total_before_tax, Decimal("85.00")) # Should still be 85.00
+        self.assertEqual(self.invoice.tax_amount, Decimal("6.80")) # 8% tax on 85.00
+        self.assertEqual(self.invoice.grand_total, Decimal("91.80")) # 85.00 + 6.80
 
 class InvoiceItemModelTests(TestCase):
 
