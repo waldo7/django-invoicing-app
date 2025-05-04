@@ -1,3 +1,6 @@
+from django.http import HttpResponse # For sending the PDF response
+from django.template.loader import render_to_string # To render template to string
+
 from django.shortcuts import render
 from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404, redirect # Helpful shortcut
@@ -5,7 +8,17 @@ from django.urls import reverse
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 
-from .models import Order, MenuItem, Quotation 
+# Import WeasyPrint (will cause error if not installed)
+try:
+    import weasyprint
+except ImportError:
+    # Handle error gracefully if weasyprint isn't installed
+    # You might want to log this or raise a configuration error
+    weasyprint = None
+    print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
+    print("Please install it: pip install WeasyPrint and required system dependencies.")
+
+from .models import Order, MenuItem, Quotation, Setting
 
 # Create your views here.
 def get_menu_item_details(request, pk):
@@ -32,7 +45,7 @@ def get_menu_item_details(request, pk):
         # Basic error handling
         return JsonResponse({'error': str(e)}, status=500)
     
-    
+
 @staff_member_required # Ensure only logged-in staff can access this
 def revise_quotation(request, pk):
     """
@@ -89,5 +102,63 @@ def create_invoice_from_order(request, pk):
     return redirect(redirect_url)
 
 
+@staff_member_required
+def generate_quotation_pdf(request, pk):
+    """
+    View to generate and return a PDF representation of a Quotation.
+    """
+    if not weasyprint:
+        # Handle case where WeasyPrint failed to import
+        return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
+
+    try:
+        quotation = get_object_or_404(Quotation, pk=pk)
+        settings = Setting.get_solo()
+        items = quotation.items.all()
+
+        # Prepare context for the template
+        context = {
+            'quotation': quotation,
+            'items': items,
+            'settings': settings,
+        }
+
+        # Render the HTML template to a string
+        html_string = render_to_string('documents/pdf/quotation_pdf.html', context)
+
+        # Generate PDF using WeasyPrint
+        # base_url helps resolve relative paths for assets if needed (e.g., CSS)
+        # Using request.build_absolute_uri('/') provides the site's base URL.
+        html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
+        pdf_file = html.write_pdf()
+
+        # Create the HTTP response with PDF mime type
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+
+        # Set Content-Disposition header to suggest a filename
+        # 'inline' attempts to display PDF in browser, 'attachment' forces download
+        filename = f"Quotation-{quotation.quotation_number or quotation.pk}.pdf"
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        # Alternatively, for forced download:
+        # response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        return response
+
+    except Quotation.DoesNotExist:
+        raise Http404("Quotation not found.")
+    except Setting.DoesNotExist:
+         # Handle case where settings haven't been configured in admin yet
+         messages.error(request, "Application settings have not been configured in the admin.")
+         # Redirect back to where they came from or a safe place
+         # This requires getting the previous URL or redirecting to admin index
+         # For simplicity now, let's return an error response
+         return HttpResponse("Application settings not configured.", status=500)
+    except Exception as e:
+        # Handle other potential errors during PDF generation
+        print(f"Error generating PDF for Quotation {pk}: {e}") # Log the error
+        messages.error(request, f"An error occurred while generating the PDF: {e}")
+        # Redirect back to the quotation detail page
+        admin_url = reverse('admin:documents_quotation_change', args=[pk])
+        return redirect(admin_url)
 
 

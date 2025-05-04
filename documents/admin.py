@@ -55,14 +55,14 @@ class QuotationAdmin(admin.ModelAdmin):
     # Make auto-generated/timestamp fields read-only
     readonly_fields = (
         'quotation_number', 'version', 'created_at', 'updated_at', ''
-        'previous_version', 'revise_quotation_link'
+        'previous_version', 'revise_quotation_link', 'view_pdf_link'
         )
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
         (None, {
             'fields': ('client', 'title', 'status')
         }),
-        ('Actions', {'fields': ('revise_quotation_link',)}),
+        ('Actions', {'fields': ('revise_quotation_link', 'view_pdf_link',)}),
         # Section 2: Dates
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
@@ -114,6 +114,16 @@ class QuotationAdmin(admin.ModelAdmin):
         return mark_safe("<em>(Cannot revise if Draft or Superseded)</em>") # Import mark_safe if needed
     revise_quotation_link.short_description = 'Revise' # Label for the fieldset section
     # revise_quotation_link.allow_tags = True # Deprecated in newer Django, format_html handles safety
+
+    def view_pdf_link(self, obj):
+        """Generate a 'View PDF' button link."""
+        if obj.pk: # Check if the object has been saved
+             # Generate URL for the PDF view
+             url = reverse('documents:quotation_pdf', args=[obj.pk])
+             # Return HTML for a link styled as button, opening in new tab
+             return format_html('<a href="{}" class="button" target="_blank">View PDF</a>', url)
+        return mark_safe("<em>(Save quotation first to view PDF)</em>")
+    view_pdf_link.short_description = 'PDF' # Label for the fieldset
 
     class Media:
         # List of JS files to include on the admin change/add pages
