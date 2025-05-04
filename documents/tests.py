@@ -772,6 +772,76 @@ class OrderModelTests(TestCase):
         except ValidationError as e:
             self.fail(f"Validation failed unexpectedly when no quote is linked: {e}")
 
+    def test_order_subtotal_and_discount(self):
+        """Test subtotal and discount amount calculations for Order."""
+        # --- Setup ---
+        order = Order.objects.create(client=self.db_client, event_date=date(2025, 8, 1))
+        menu_item = MenuItem.objects.create(name="Item for Order Disc Test", unit_price=Decimal("100.00"))
+        # Add items: 1 * 100 = 100, 2 * 50 = 100. Subtotal = 200.00
+        OrderItem.objects.create(order=order, menu_item=menu_item, quantity=1, unit_price=Decimal("100.00"))
+        OrderItem.objects.create(order=order, menu_item=menu_item, quantity=2, unit_price=Decimal("50.00"))
+
+
+        # --- Test subtotal ---
+        self.assertEqual(order.subtotal, Decimal("200.00"))
+
+        # --- Test No Discount ---
+        order.discount_type = DiscountType.NONE
+        order.discount_value = Decimal("10.00") # Value ignored
+        order.save()
+        self.assertEqual(order.discount_amount, Decimal("0.00"))
+
+        # --- Test Percentage Discount (15% of 200 = 30.00) ---
+        order.discount_type = DiscountType.PERCENTAGE
+        order.discount_value = Decimal("15.00")
+        order.save()
+        self.assertEqual(order.discount_amount, Decimal("30.00"))
+
+        # --- Test Fixed Discount (RM 50.00) ---
+        order.discount_type = DiscountType.FIXED
+        order.discount_value = Decimal("50.00")
+        order.save()
+        self.assertEqual(order.discount_amount, Decimal("50.00"))
+
+        # --- Test Fixed Discount exceeding subtotal ---
+        order.discount_type = DiscountType.FIXED
+        order.discount_value = Decimal("300.00")
+        order.save()
+        self.assertEqual(order.discount_amount, Decimal("200.00")) # Should cap at subtotal
+
+    def test_order_tax_and_grand_total(self):
+        """Test tax amount and grand total calculations for Order."""
+        # --- Setup ---
+        order = Order.objects.create(client=self.db_client, event_date=date(2025, 9, 1))
+        menu_item = MenuItem.objects.create(name="Item for Order Tax Test", unit_price=Decimal("200.00"))
+        # Add items: Subtotal = 200.00
+        OrderItem.objects.create(order=order, menu_item=menu_item, quantity=1, unit_price=Decimal("200.00"))
+
+        # Add Discount: Fixed RM 20.00. Total before tax = 180.00
+        order.discount_type = DiscountType.FIXED
+        order.discount_value = Decimal("20.00")
+        order.save() # Save discount settings
+
+        settings = Setting.get_solo() # Get settings instance
+
+        # --- Test Case 1: Tax Disabled ---
+        settings.tax_enabled = False
+        settings.tax_rate = Decimal("6.00") # Rate doesn't matter if disabled
+        settings.save()
+
+        self.assertEqual(order.total_before_tax, Decimal("180.00")) # Subtotal - Discount
+        self.assertEqual(order.tax_amount, Decimal("0.00"))     # Tax should be 0
+        self.assertEqual(order.grand_total, Decimal("180.00"))   # Grand total = total before tax
+
+        # --- Test Case 2: Tax Enabled (6% of 180.00 = 10.80) ---
+        settings.tax_enabled = True
+        settings.tax_rate = Decimal("6.00")
+        settings.save()
+
+        self.assertEqual(order.total_before_tax, Decimal("180.00")) # Should be unchanged
+        self.assertEqual(order.tax_amount, Decimal("10.80"))      # 6% tax on 180.00
+        self.assertEqual(order.grand_total, Decimal("190.80"))    # 180.00 + 10.80
+
 
 class OrderItemModelTests(TestCase):
 
@@ -810,7 +880,16 @@ class OrderItemModelTests(TestCase):
         self.assertEqual(str(item), expected_str)
 
 
-
+    def test_order_item_line_total(self):
+        """Test the line_total calculation property."""
+        # This test will fail until the property exists
+        item = OrderItem.objects.create(
+            order=self.order,
+            menu_item=self.menu_item,
+            quantity=Decimal("2.5"),
+            unit_price=Decimal("10.00") # 2.5 * 10.00 = 25.00
+        )
+        self.assertEqual(item.line_total, Decimal("25.00"))
 
 
 

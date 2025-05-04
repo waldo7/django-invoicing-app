@@ -233,30 +233,80 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 1 # Show one empty row for adding items
     # Add readonly_fields for calculated properties later if needed (e.g., line_total)
-    # readonly_fields = ('line_total',)
-    # def line_total(self, obj): return obj.line_total
-    # line_total.short_description = 'Line Total'
+    readonly_fields = ('line_total',)
+    
+    # Helper to display the property
+    def line_total(self, obj):
+        # Access the property we just added to the model
+        return obj.line_total
+    line_total.short_description = 'Line Total' # Column header
 
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('order_number', 'client', 'title', 'status', 'event_date', 'created_at')
+    list_display = ('order_number', 'client', 'title', 'status', 'event_date', 'display_grand_total', 'created_at') # Added total display
     list_filter = ('status', 'client', 'event_date')
     search_fields = ('order_number', 'client__name', 'title', 'items__menu_item__name')
-    list_select_related = ('client',) # Optimize client lookup for list view
-    date_hierarchy = 'event_date' # Navigate by event date
-    readonly_fields = ('order_number', 'created_at', 'updated_at')
+    list_select_related = ('client',)
+    date_hierarchy = 'event_date'
+    # Add display method names to readonly_fields
+    readonly_fields = (
+        'order_number', 'created_at', 'updated_at',
+        'display_subtotal', 'display_discount_amount', 'display_tax_amount', 'display_grand_total_detail' # Added calculated fields
+    )
     fieldsets = (
         (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
         ('Event Details', {'fields': ('event_date', 'delivery_address')}),
-        # Add Discount/Tax sections later if needed for Orders too
+        ('Discount', {'fields': ('discount_type', 'discount_value')}),
+        # --- Add Financial Summary section ---
+        ('Financial Summary', {'fields': (
+            'display_subtotal',
+            'display_discount_amount',
+            'display_tax_amount',
+            'display_grand_total_detail'
+        )}),
         ('Notes', {'fields': ('notes',)}),
         ('System Info', {
             'fields': ('order_number', 'created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
-    inlines = [OrderItemInline] # Embed the OrderItem editor
+
+    inlines = [OrderItemInline]
+
+    def display_grand_total(self, obj):
+         """Formats grand_total for list display."""
+         try: return f"RM {obj.grand_total:,.2f}"
+         except Exception: return "Error"
+    display_grand_total.short_description = 'Total Amount' # Header for list view
+
+    def display_grand_total_detail(self, obj):
+         """Formats grand_total for detail view."""
+         try: return f"RM {obj.grand_total:,.2f}"
+         except Exception: return "Error"
+    display_grand_total_detail.short_description = 'Grand Total (Calc.)' # Header for detail view
+
+    def display_subtotal(self, obj):
+         """Formats subtotal for detail view."""
+         try: return f"RM {obj.subtotal:,.2f}"
+         except Exception: return "Error"
+    display_subtotal.short_description = 'Subtotal (Calc.)'
+
+    def display_discount_amount(self, obj):
+         """Formats discount_amount for detail view."""
+         try: return f"RM {obj.discount_amount:,.2f}"
+         except Exception: return "Error"
+    display_discount_amount.short_description = 'Discount Amount (Calc.)'
+
+    def display_tax_amount(self, obj):
+         """Formats tax_amount for detail view."""
+         try: return f"RM {obj.tax_amount:,.2f}"
+         except Exception: return "Error"
+    display_tax_amount.short_description = 'Tax Amount (Calc.)'
+
+    # Keep the Media class for JS auto-population
+    class Media:
+        js = ('documents/js/admin_inline_autofill.js',)
 
     class Media:
         # Use the SAME JavaScript file as Quote/Invoice inlines

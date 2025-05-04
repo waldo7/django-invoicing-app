@@ -511,9 +511,63 @@ class Order(models.Model):
     delivery_address = models.TextField(blank=True, default='')
     notes = models.TextField(blank=True, default='', help_text="Internal notes about the order/event")
 
-    # We will add discount/tax fields later, likely copied from the accepted Quote or set here
-    # discount_type = ...
-    # discount_value = ...
+    # --- Add Discount Fields ---
+    discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountType.choices, # Reuse choices defined earlier
+        default=DiscountType.NONE
+    )
+    discount_value = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00"),
+        help_text="Enter percentage (e.g., 10.00 for 10%) or fixed amount for overall order discount."
+    )
+
+    @property
+    def subtotal(self):
+        """Calculate sum of all line item totals before discounts/taxes."""
+        # Use the related_name 'items' from OrderItem's ForeignKey
+        return sum((item.line_total for item in self.items.all()), Decimal('0.00')).quantize(Decimal("0.01"))
+
+    @property
+    def discount_amount(self):
+        """Calculate the discount amount based on type and value."""
+        # Reuse the logic from Quote/Invoice
+        if self.discount_type == DiscountType.NONE or self.discount_value <= 0:
+            return Decimal("0.00")
+
+        sub = self.subtotal # Use the subtotal property we just defined
+        if self.discount_type == DiscountType.PERCENTAGE:
+            amount = (sub * (self.discount_value / Decimal(100))).quantize(Decimal("0.01"))
+            return amount
+        elif self.discount_type == DiscountType.FIXED:
+            amount = min(sub, self.discount_value).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+    
+    @property
+    def total_before_tax(self):
+        """Calculate total after discount but before tax."""
+        return (self.subtotal - self.discount_amount).quantize(Decimal("0.01"))
+
+    @property
+    def tax_amount(self):
+        """Calculate tax amount based on settings and total_before_tax."""
+        # Use dynamic model loading for Setting
+        Setting = apps.get_model('documents', 'Setting')
+        try:
+            settings = Setting.get_solo()
+            if settings.tax_enabled and settings.tax_rate > 0:
+                tax_rate = settings.tax_rate / Decimal(100)
+                amount = (self.total_before_tax * tax_rate).quantize(Decimal("0.01"))
+                return amount
+        except Setting.DoesNotExist:
+            pass # Settings not created yet
+        return Decimal("0.00")
+
+    @property
+    def grand_total(self):
+        """Calculate the final total including discounts and tax."""
+        return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -568,6 +622,14 @@ class OrderItem(models.Model):
         order_num = self.order.order_number if self.order_id and self.order.order_number else f"Order PK {self.order_id}"
         # Add "Order " before {order_num}
         return f"{self.quantity} x {self.menu_item.name} on Order {order_num}"
+    
+    @property
+    def line_total(self):
+        """Calculate the total for this line item."""
+        # Same logic as QuotationItem/InvoiceItem
+        if self.quantity is not None and self.unit_price is not None:
+            return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+        return Decimal("0.00")
 
     class Meta:
         ordering = ['id'] # Order items by creation order within an order
