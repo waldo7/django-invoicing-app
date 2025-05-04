@@ -130,16 +130,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     # Embed the InvoiceItem editor
     inlines = [InvoiceItemInline]
 
-    # We can add a display_total method here later similar to QuotationAdmin
-    def display_total(self, obj):
-         """Calculates and formats the total for display in admin list."""
-         try:
-             # Format as RM currency
-             return f"RM {obj.grand_total:,.2f}"
-         except Exception:
-             return "Error"
-    display_total.short_description = 'Total Amount' # Sets the column header
-
+    
     def display_grand_total(self, obj): # Renamed for list view
          """Formats grand_total for list display."""
          try: return f"RM {obj.grand_total:,.2f}"
