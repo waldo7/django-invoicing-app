@@ -1,4 +1,5 @@
 from django.core.validators import MinValueValidator # To ensure amount is positive
+from django.core.exceptions import ValidationError
 from datetime import timedelta # Needed for adding days to a date
 from django.db import models
 from django.conf import settings # Needed for ForeignKey to User if we add created_by later
@@ -447,3 +448,24 @@ class Payment(models.Model):
 
     class Meta:
         ordering = ['-payment_date', '-created_at']
+
+    def clean(self):
+        """
+        Add validation to prevent payments against Draft or Cancelled invoices.
+        """
+        super().clean() # Call parent's clean method first
+
+        # Check if invoice is linked and has a status that shouldn't allow payments
+        if self.invoice_id: # Check if invoice is linked (self.invoice might not be loaded yet)
+            InvoiceStatus = apps.get_model('documents', 'Invoice').Status # Get status choices safely
+            # Fetch the invoice's current status
+            try:
+                # Fetch status directly to avoid loading the whole invoice object if not needed
+                invoice_status = Invoice.objects.values_list('status', flat=True).get(pk=self.invoice_id)
+                if invoice_status in [InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED]:
+                    raise ValidationError(
+                        f"Payments cannot be recorded for Invoices with status: {invoice_status}."
+                    )
+            except Invoice.DoesNotExist:
+                # Should not happen if FK constraint is working, but good practice
+                raise ValidationError("Cannot find the associated Invoice.")

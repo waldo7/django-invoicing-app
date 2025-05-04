@@ -193,14 +193,38 @@ class SettingAdmin(SingletonModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ('invoice', 'payment_date', 'amount', 'payment_method', 'reference_number', 'created_at')
-    list_filter = ('payment_date', 'payment_method', 'invoice__client') # Filter by client via invoice relationship
-    search_fields = ('invoice__invoice_number', 'invoice__client__name', 'reference_number', 'notes') # Search related invoice/client
-    list_select_related = ('invoice', 'invoice__client') # Optimize fetching related data for list view
-    date_hierarchy = 'payment_date' # Adds date drill-down navigation
+    """Admin interface for the Payment model."""
+    list_display = ('get_invoice_number', 'payment_date', 'amount_display', 'payment_method', 'reference_number', 'created_at')
+    list_filter = ('payment_date', 'payment_method', 'invoice__client')
+    search_fields = ('invoice__invoice_number', 'invoice__client__name', 'reference_number', 'notes')
+    list_select_related = ('invoice', 'invoice__client') # Performance optimization
+    date_hierarchy = 'payment_date' # Adds date navigation
+    readonly_fields = ('created_at', 'updated_at') # Timestamps shouldn't be editable
+    list_per_page = 25 # Show more items per page if desired
 
-    # Make amount read-only after creation? Maybe not needed yet.
-    # readonly_fields = ('created_at', 'updated_at')
+    # Use methods to display related fields nicely and format currency
+    def get_invoice_number(self, obj):
+        if obj.invoice:
+            # Optional: Link to the invoice change page
+            # from django.urls import reverse
+            # from django.utils.html import format_html
+            # url = reverse('admin:documents_invoice_change', args=[obj.invoice.pk])
+            # return format_html('<a href="{}">{}</a>', url, obj.invoice.invoice_number or f"Invoice PK {obj.invoice.pk}")
+            return obj.invoice.invoice_number or f"Invoice PK {obj.invoice.pk}"
+        return None
+    get_invoice_number.short_description = 'Invoice' # Column header
+    get_invoice_number.admin_order_field = 'invoice__invoice_number' # Allow sorting by invoice number
 
-    # Customize the form fields if needed
+    def amount_display(self, obj):
+        # Format amount with currency (assuming RM for now)
+         try:
+             # settings = Setting.get_solo() # Could fetch currency from settings later
+             currency = "RM"
+             return f"{currency} {obj.amount:,.2f}"
+         except Exception:
+             return obj.amount # Fallback
+    amount_display.short_description = 'Amount'
+    amount_display.admin_order_field = 'amount' # Allow sorting by amount
+
+    # Customize the form fields layout if needed
     # fieldsets = ( ... )

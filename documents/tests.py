@@ -534,9 +534,9 @@ class PaymentModelTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         # Create objects needed for payment tests
-        cls.client = Client.objects.create(name="Client for Payments")
+        cls.db_client = Client.objects.create(name="Client for Payments")
         # Create an invoice, explicitly setting issue date as it's now required before save
-        cls.invoice = Invoice.objects.create(client=cls.client, issue_date=date(2025, 5, 1))
+        cls.invoice = Invoice.objects.create(client=cls.db_client, issue_date=date(2025, 5, 1))
         cls.invoice.refresh_from_db() # Ensure invoice number is generated if needed
 
     def test_payment_creation(self):
@@ -570,22 +570,33 @@ class PaymentModelTests(TestCase):
 
     def test_amount_validation_positive(self):
         """Test that the amount must be positive."""
-        # Test zero amount
+        # Test zero amount - uses self.invoice (which is DRAFT, validation fails - OK for assertRaises)
+        # Note: The reason this raises ValidationError might now be the status check,
+        # but assertRaises still passes, which is acceptable for this test's original purpose.
         with self.assertRaises(ValidationError):
             payment_zero = Payment(invoice=self.invoice, amount=Decimal("0.00"))
-            payment_zero.full_clean() # full_clean() runs model validation
+            payment_zero.full_clean() # Raises validation error (MinValue or Status)
 
-        # Test negative amount
+        # Test negative amount - uses self.invoice (which is DRAFT, validation fails - OK for assertRaises)
         with self.assertRaises(ValidationError):
             payment_neg = Payment(invoice=self.invoice, amount=Decimal("-10.00"))
-            payment_neg.full_clean()
+            payment_neg.full_clean() # Raises validation error (MinValue or Status)
 
         # Test valid amount (should not raise error)
+        # --- Create a SENT invoice specifically for this check ---
+        sent_invoice = Invoice.objects.create(
+            client=self.db_client, # Use self.db_client from setUpTestData
+            issue_date=date(2025, 5, 4),
+            status=Invoice.Status.SENT # Set status to SENT
+        )
+        # --- End create SENT invoice ---
         try:
-            payment_ok = Payment(invoice=self.invoice, amount=Decimal("0.01"))
-            payment_ok.full_clean()
-        except ValidationError:
-            self.fail("Positive amount validation failed unexpectedly.")
+            # Use the sent_invoice here
+            payment_ok = Payment(invoice=sent_invoice, amount=Decimal("0.01"))
+            payment_ok.full_clean() # Should NOT raise ValidationError now
+        except ValidationError as e:
+            # If it fails, include the error message for easier debugging
+            self.fail(f"Positive amount validation failed unexpectedly for SENT invoice: {e}")
 
     def test_payment_str_representation(self):
         """Test the string representation of the payment."""
@@ -598,3 +609,55 @@ class PaymentModelTests(TestCase):
         # Using RM as hardcoded in __str__ for now
         expected_str = f"Payment of RM 75.25 for Invoice {self.invoice.invoice_number} on 2025-05-04"
         self.assertEqual(str(payment), expected_str)
+
+    def test_payment_validation_for_invoice_status(self):
+        """
+        Test that Payments cannot be created for Draft or Cancelled invoices.
+        """
+        # Use a different client to avoid interference if needed
+        client = Client.objects.create(name="Validation Client")
+
+        # Scenario 1: Draft Invoice
+        draft_invoice = Invoice.objects.create(
+            client=client,
+            issue_date=date(2025, 5, 4),
+            status=Invoice.Status.DRAFT # Explicitly Draft
+        )
+        payment_for_draft = Payment(
+            invoice=draft_invoice,
+            amount=Decimal("50.00"),
+            payment_date=date(2025, 5, 4)
+        )
+        with self.assertRaisesRegex(ValidationError, "status: DRAFT"):
+            payment_for_draft.full_clean() # Should raise ValidationError
+
+        # Scenario 2: Cancelled Invoice
+        cancelled_invoice = Invoice.objects.create(
+            client=client,
+            issue_date=date(2025, 5, 4),
+            status=Invoice.Status.CANCELLED # Explicitly Cancelled
+        )
+        payment_for_cancelled = Payment(
+            invoice=cancelled_invoice,
+            amount=Decimal("50.00"),
+            payment_date=date(2025, 5, 4)
+        )
+        with self.assertRaisesRegex(ValidationError, "status: CANCELLED"):
+            payment_for_cancelled.full_clean() # Should raise ValidationError
+
+        # Scenario 3: Sent Invoice (Should PASS validation)
+        sent_invoice = Invoice.objects.create(
+            client=client,
+            issue_date=date(2025, 5, 4),
+            status=Invoice.Status.SENT # Explicitly Sent
+        )
+        payment_for_sent = Payment(
+            invoice=sent_invoice,
+            amount=Decimal("50.00"),
+            payment_date=date(2025, 5, 4)
+        )
+        try:
+            payment_for_sent.full_clean() # Should NOT raise ValidationError
+        except ValidationError as e:
+            self.fail(f"Validation failed unexpectedly for SENT invoice: {e}")
+
