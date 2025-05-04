@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html, mark_safe
+from django.urls import reverse
+from django.utils.html import format_html
 
 
 # Register your models here.
@@ -51,12 +53,16 @@ class QuotationAdmin(admin.ModelAdmin):
     list_filter = ('status', 'client', 'issue_date', 'created_at')
     search_fields = ('quotation_number', 'client__name', 'title', 'items__menu_item__name')
     # Make auto-generated/timestamp fields read-only
-    readonly_fields = ('quotation_number', 'version', 'created_at', 'updated_at', 'previous_version')
+    readonly_fields = (
+        'quotation_number', 'version', 'created_at', 'updated_at', ''
+        'previous_version', 'revise_quotation_link'
+        )
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
         (None, {
             'fields': ('client', 'title', 'status')
         }),
+        ('Actions', {'fields': ('revise_quotation_link',)}),
         # Section 2: Dates
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
@@ -79,6 +85,9 @@ class QuotationAdmin(admin.ModelAdmin):
         }),
     )
 
+    # Embed the item editor within the quote page
+    inlines = [QuotationItemInline]
+
     def display_total(self, obj):
          # Call the 'total' property from the Quotation model
          # Format it nicely for display (optional, but good)
@@ -89,8 +98,22 @@ class QuotationAdmin(admin.ModelAdmin):
              return "Error" # Handle potential calculation errors gracefully
     display_total.short_description = 'Total Amount' # Column header
 
-    # Embed the item editor within the quote page
-    inlines = [QuotationItemInline]
+    def revise_quotation_link(self, obj):
+        """
+        Generate a 'Revise' button link for the admin change page.
+        Only show if the quotation exists and is in a state that can be revised (e.g., Sent, Accepted).
+        """
+        # Check if the object has been saved (has a PK) and its status allows revision
+        if obj.pk and obj.status in [Quotation.Status.SENT, Quotation.Status.ACCEPTED, Quotation.Status.REJECTED]:
+             # Generate the URL for our revise_quotation view using its name
+             # Ensure 'documents' namespace is used if defined in core.urls include()
+             url = reverse('documents:quotation_revise', args=[obj.pk])
+             # Return HTML for a button-like link using admin styles
+             return format_html('<a href="{}" class="button">Revise this Quotation</a>', url)
+        # Return empty string or info message if revision isn't allowed
+        return mark_safe("<em>(Cannot revise if Draft or Superseded)</em>") # Import mark_safe if needed
+    revise_quotation_link.short_description = 'Revise' # Label for the fieldset section
+    # revise_quotation_link.allow_tags = True # Deprecated in newer Django, format_html handles safety
 
     class Media:
         # List of JS files to include on the admin change/add pages
@@ -115,10 +138,14 @@ class InvoiceAdmin(admin.ModelAdmin):
     list_filter = ('status', 'client', 'issue_date')
     search_fields = ('invoice_number', 'client__name', 'items__menu_item__name')
     # Make auto-generated fields read-only
-    readonly_fields = ('invoice_number', 'created_at', 'updated_at', 'display_amount_paid', 'display_balance_due', 'display_grand_total_detail')
+    readonly_fields = (
+        'invoice_number', 'created_at', 'updated_at', 
+        'display_amount_paid', 'display_balance_due', 'display_grand_total_detail',
+        'related_order'
+        )
     fieldsets = (
         # Group fields logically in the edit view
-        (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
+        (None, {'fields': ('client', 'related_quotation', 'related_order', 'title', 'status')}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
         ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
@@ -252,10 +279,12 @@ class OrderAdmin(admin.ModelAdmin):
     # Add display method names to readonly_fields
     readonly_fields = (
         'order_number', 'created_at', 'updated_at',
-        'display_subtotal', 'display_discount_amount', 'display_tax_amount', 'display_grand_total_detail' # Added calculated fields
+        'display_subtotal', 'display_discount_amount', 'display_tax_amount', 'display_grand_total_detail',
+        'create_invoice_link'
     )
     fieldsets = (
         (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
+        ('Actions', {'fields': ('create_invoice_link',)}),
         ('Event Details', {'fields': ('event_date', 'delivery_address')}),
         ('Discount', {'fields': ('discount_type', 'discount_value')}),
         # --- Add Financial Summary section ---
@@ -303,6 +332,23 @@ class OrderAdmin(admin.ModelAdmin):
          try: return f"RM {obj.tax_amount:,.2f}"
          except Exception: return "Error"
     display_tax_amount.short_description = 'Tax Amount (Calc.)'
+
+    def create_invoice_link(self, obj):
+        """
+        Generate a 'Create Invoice' button link for the admin change page.
+        Only show if the order exists and is in a state that allows invoicing.
+        """
+        # Define statuses from which an invoice can be created
+        allowed_statuses = [Order.OrderStatus.CONFIRMED, Order.OrderStatus.IN_PROGRESS, Order.OrderStatus.COMPLETED]
+
+        if obj.pk and obj.status in allowed_statuses:
+            # Generate the URL for our create_invoice_from_order view
+            url = reverse('documents:order_create_invoice', args=[obj.pk])
+            # Return HTML for a button-like link
+            return format_html('<a href="{}" class="button">Create Invoice from this Order</a>', url)
+        # Return info message if invoicing isn't allowed for this status
+        return mark_safe(f"<em>(Cannot create invoice for status: {obj.get_status_display()})</em>")
+    create_invoice_link.short_description = 'Invoice Actions' # Label for the fieldset section
 
     # Keep the Media class for JS auto-population
     class Media:

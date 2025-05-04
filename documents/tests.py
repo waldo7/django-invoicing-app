@@ -8,7 +8,7 @@ from django.core.validators import MinValueValidator
 # Create your tests here.
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
-    Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem, OrderStatus 
+    Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem 
 )
 
 
@@ -207,6 +207,87 @@ class QuotationModelTests(TestCase):
         self.assertEqual(quote.total_before_tax, Decimal("90.00")) # Should be unchanged
         self.assertEqual(quote.tax_amount, Decimal("5.40"))      # 6% tax on 90.00
         self.assertEqual(quote.grand_total, Decimal("95.40"))    # 90.00 + 5.40
+
+    def test_create_revision(self):
+        """
+        Test the create_revision() method on the Quotation model.
+        """
+        # --- Setup: Create V1 with items ---
+        quote_v1 = Quotation.objects.create(
+            client=self.db_client,
+            issue_date=date(2025, 5, 1), # Must have issue date if Sent
+            title="Original Quote V1",
+            terms_and_conditions="V1 Terms",
+            notes="V1 Notes",
+            discount_type=DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+            status=Quotation.Status.SENT # Start from a SENT state
+        )
+        quote_v1.refresh_from_db() # Get PK and number
+        menu_item1 = MenuItem.objects.create(name="Rev Test Item 1", unit_price=100)
+        menu_item2 = MenuItem.objects.create(name="Rev Test Item 2", unit_price=20)
+
+        item1_v1 = QuotationItem.objects.create(
+            quotation=quote_v1, menu_item=menu_item1, quantity=1, unit_price=100, description="Desc A", grouping_label="G1"
+        )
+        item2_v1 = QuotationItem.objects.create(
+            quotation=quote_v1, menu_item=menu_item2, quantity=2, unit_price=25, description="Desc B", grouping_label="G2" # Price override
+        )
+        original_item_count = quote_v1.items.count()
+        self.assertEqual(original_item_count, 2)
+
+        # --- Action: Create the revision ---
+        quote_v2 = quote_v1.create_revision()
+
+        # --- Assertions ---
+        # Check V2 exists and basic properties
+        self.assertIsNotNone(quote_v2)
+        self.assertIsInstance(quote_v2, Quotation)
+        self.assertEqual(quote_v2.status, Quotation.Status.DRAFT)
+        self.assertEqual(quote_v2.version, quote_v1.version + 1) # Should be 2
+        self.assertEqual(quote_v2.previous_version, quote_v1)
+        self.assertIsNotNone(quote_v2.quotation_number) # Should have a new number
+        self.assertNotEqual(quote_v2.quotation_number, quote_v1.quotation_number)
+        self.assertIsNone(quote_v2.issue_date) # Dates should be reset
+        self.assertIsNone(quote_v2.valid_until)
+
+        # Check copied fields
+        self.assertEqual(quote_v2.client, quote_v1.client)
+        self.assertEqual(quote_v2.title, quote_v1.title)
+        self.assertEqual(quote_v2.terms_and_conditions, quote_v1.terms_and_conditions)
+        self.assertEqual(quote_v2.notes, quote_v1.notes)
+        self.assertEqual(quote_v2.discount_type, quote_v1.discount_type)
+        self.assertEqual(quote_v2.discount_value, quote_v1.discount_value)
+
+        # Check original quote status updated
+        quote_v1.refresh_from_db() # Refresh V1 to get its updated status
+        self.assertEqual(quote_v1.status, Quotation.Status.SUPERSEDED)
+
+        # Check items copied correctly
+        self.assertEqual(quote_v2.items.count(), original_item_count)
+        v1_items = list(QuotationItem.objects.filter(quotation=quote_v1).order_by('pk'))
+        v2_items = list(quote_v2.items.all().order_by('pk')) # Fetch items from V2
+
+        for i in range(original_item_count):
+            self.assertEqual(v2_items[i].menu_item, v1_items[i].menu_item)
+            self.assertEqual(v2_items[i].description, v1_items[i].description)
+            self.assertEqual(v2_items[i].quantity, v1_items[i].quantity)
+            self.assertEqual(v2_items[i].unit_price, v1_items[i].unit_price) # Crucial check
+            self.assertEqual(v2_items[i].grouping_label, v1_items[i].grouping_label)
+            self.assertNotEqual(v2_items[i].pk, v1_items[i].pk) # Ensure they are new item records
+            self.assertEqual(v2_items[i].quotation, quote_v2) # Ensure linked to V2
+
+    def test_create_revision_from_invalid_status(self):
+        """Test that revising a Draft or Superseded quote doesn't work."""
+        draft_quote = Quotation.objects.create(client=self.db_client, status=Quotation.Status.DRAFT)
+        superseded_quote = Quotation.objects.create(client=self.db_client, status=Quotation.Status.SUPERSEDED)
+
+        self.assertIsNone(draft_quote.create_revision(), "Should not revise a Draft")
+        self.assertIsNone(superseded_quote.create_revision(), "Should not revise a Superseded quote")
+
+        # Ensure original statuses didn't change
+        self.assertEqual(draft_quote.status, Quotation.Status.DRAFT)
+        self.assertEqual(superseded_quote.status, Quotation.Status.SUPERSEDED)
 
     
 class QuotationItemModelTests(TestCase):
@@ -694,7 +775,7 @@ class OrderModelTests(TestCase):
         self.assertEqual(order.client, self.db_client )
         self.assertEqual(order.related_quotation, self.quote)
         self.assertEqual(order.title, "Wedding Catering Order")
-        self.assertEqual(order.status, OrderStatus.CONFIRMED) # Check default
+        self.assertEqual(order.status, Order.OrderStatus.CONFIRMED) # Check default
         self.assertEqual(order.event_date, order_event_date)
         self.assertEqual(order.delivery_address, "123 Event Hall Lane")
         self.assertEqual(order.notes, "Allergic to nuts")
@@ -841,6 +922,72 @@ class OrderModelTests(TestCase):
         self.assertEqual(order.total_before_tax, Decimal("180.00")) # Should be unchanged
         self.assertEqual(order.tax_amount, Decimal("10.80"))      # 6% tax on 180.00
         self.assertEqual(order.grand_total, Decimal("190.80"))    # 180.00 + 10.80
+
+    def test_create_invoice(self):
+        """Test the create_invoice() method on the Order model."""
+        # --- Setup: Create a Confirmed Order with items and details ---
+        order = Order.objects.create(
+            client=self.db_client,
+            related_quotation=self.quote, # Use quote from setUpTestData
+            title="Confirmed Order Title",
+            status=Order.OrderStatus.CONFIRMED, # Must be confirmable status
+            event_date=date(2025, 10, 15),
+            discount_type=DiscountType.FIXED,
+            discount_value=Decimal("10.00")
+        )
+        order.refresh_from_db() # Get PK/Number
+
+        menu_item1 = MenuItem.objects.create(name="Inv Create Item 1", unit_price=30)
+        menu_item2 = MenuItem.objects.create(name="Inv Create Item 2", unit_price=40)
+        item1 = OrderItem.objects.create(order=order, menu_item=menu_item1, quantity=2, unit_price=30, description="Desc X")
+        item2 = OrderItem.objects.create(order=order, menu_item=menu_item2, quantity=1, unit_price=45, description="Desc Y") # Price override
+        original_item_count = order.items.count()
+
+        # --- Action: Create the invoice ---
+        invoice = order.create_invoice()
+
+        # --- Assertions: Check Invoice ---
+        self.assertIsNotNone(invoice)
+        self.assertIsInstance(invoice, Invoice)
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+        self.assertEqual(invoice.client, order.client)
+        self.assertEqual(invoice.related_order, order)
+        self.assertEqual(invoice.related_quotation, order.related_quotation)
+        self.assertEqual(invoice.title, order.title)
+        self.assertEqual(invoice.discount_type, order.discount_type)
+        self.assertEqual(invoice.discount_value, order.discount_value)
+        # Dates should be None initially
+        self.assertIsNone(invoice.issue_date)
+        self.assertIsNone(invoice.due_date)
+        # Check basic __str__ to ensure no errors
+        invoice.refresh_from_db() # Ensure number is loaded
+        expected_str = f"Invoice {invoice.invoice_number} ({order.client.name})"
+        self.assertEqual(str(invoice), expected_str)
+
+        # --- Assertions: Check Invoice Items ---
+        self.assertEqual(invoice.items.count(), original_item_count)
+        order_items = list(order.items.all().order_by('pk'))
+        invoice_items = list(invoice.items.all().order_by('pk'))
+
+        for i in range(original_item_count):
+            self.assertEqual(invoice_items[i].menu_item, order_items[i].menu_item)
+            self.assertEqual(invoice_items[i].description, order_items[i].description)
+            self.assertEqual(invoice_items[i].quantity, order_items[i].quantity)
+            self.assertEqual(invoice_items[i].unit_price, order_items[i].unit_price) # Check price copied
+            self.assertEqual(invoice_items[i].grouping_label, order_items[i].grouping_label)
+            self.assertEqual(invoice_items[i].invoice, invoice) # Ensure linked correctly
+
+    def test_create_invoice_from_invalid_status(self):
+        """Test that creating an invoice from Pending/Cancelled order fails."""
+        pending_order = Order.objects.create(client=self.db_client, status=Order.OrderStatus.PENDING)
+        cancelled_order = Order.objects.create(client=self.db_client, status=Order.OrderStatus.CANCELLED)
+
+        self.assertIsNone(pending_order.create_invoice(), "Should not create invoice from Pending order")
+        self.assertIsNone(cancelled_order.create_invoice(), "Should not create invoice from Cancelled order")
+
+        # Ensure original statuses didn't change
+        self.assertEqual(pending_order.status, Order.OrderStatus.PENDING)
+        self.assertEqual(cancelled_order.status, Order.OrderStatus.CANCELLED)
 
 
 class OrderItemModelTests(TestCase):

@@ -8,6 +8,7 @@ from decimal import Decimal
 from solo.models import SingletonModel
 from django.apps import apps
 from django.db.models import Sum
+from django.db import transaction
 
 # Create your models here.
 class Client(models.Model):
@@ -122,9 +123,7 @@ class Quotation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f"Quotation {self.quotation_number} ({self.client.name})"
-    
+        
     @property
     def subtotal(self):
         """Calculate sum of all line item totals before discounts/taxes."""
@@ -166,9 +165,75 @@ class Quotation(models.Model):
         """Calculate the final total including discounts and tax."""
         return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
 
+    def __str__(self):
+        return f"Quotation {self.quotation_number} ({self.client.name})"
     
     class Meta:
         ordering = ['-issue_date', '-created_at'] # Show newest quotes first by default
+
+    @transaction.atomic # Ensure all operations succeed or fail together
+    def create_revision(self):
+        """
+        Creates a new draft revision of the current quotation.
+        - Copies fields and line items.
+        - Increments version number.
+        - Links new version back to this one.
+        - Sets current quotation status to Superseded.
+        Returns the new draft quotation instance.
+        """
+        # Optional: Prevent revising already superseded or draft quotes?
+        if self.status == self.Status.SUPERSEDED:
+            # Or raise an exception
+            print(f"Warning: Quotation {self.quotation_number} is already superseded.")
+            return None
+        if self.status == self.Status.DRAFT:
+            print(f"Warning: Cannot revise a draft quotation {self.quotation_number}.")
+            return None # Or maybe just return self?
+
+        # Get related items before changing self
+        original_items = list(self.items.all()) # Evaluate queryset now
+
+        # Create a new instance (don't save yet)
+        # Exclude fields that should not be copied directly
+        excluded_fields = {'id', 'pk', '_state', 'quotation_number', 'status', 'version', 'previous_version', 'created_at', 'updated_at'}
+        new_quote_data = {}
+        for field in self._meta.get_fields():
+            if field.name not in excluded_fields and hasattr(self, field.name):
+                # Handle ManyToMany later if needed
+                if not field.one_to_many and not field.many_to_many:
+                     new_quote_data[field.name] = getattr(self, field.name)
+
+        # Set new version details
+        new_quote_data['version'] = self.version + 1
+        new_quote_data['status'] = self.Status.DRAFT
+        new_quote_data['previous_version'] = self
+        new_quote_data['issue_date'] = None # Drafts don't have issue date yet
+        new_quote_data['valid_until'] = None
+
+        # Create the new quote header (will trigger auto-numbering via signals)
+        new_quote = Quotation.objects.create(**new_quote_data)
+
+        # Copy line items
+        new_items = []
+        for item in original_items:
+            new_items.append(QuotationItem(
+                quotation=new_quote, # Link to the new quote
+                menu_item=item.menu_item,
+                description=item.description,
+                quantity=item.quantity,
+                unit_price=item.unit_price, # Copy the exact price from old quote
+                grouping_label=item.grouping_label
+            ))
+
+        # Use bulk_create for efficiency if there can be many items
+        if new_items:
+            QuotationItem.objects.bulk_create(new_items)
+
+        # Update status of the original quote
+        self.status = self.Status.SUPERSEDED
+        self.save(update_fields=['status']) # Only save the status field
+
+        return new_quote
 
     
 class QuotationItem(models.Model):
@@ -198,6 +263,225 @@ class QuotationItem(models.Model):
         ordering = ['id'] # Order items by creation order within a quote
 
 
+class Order(models.Model):
+    """
+    Represents a confirmed order or event booking, potentially linked from a Quotation.
+    Acts as the source for generating Invoices and Delivery Orders.
+    """
+
+    class OrderStatus(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Confirmation' # Maybe if created directly
+        CONFIRMED = 'CONFIRMED', 'Confirmed'       # Likely status after quote accepted or direct order
+        IN_PROGRESS = 'IN_PROGRESS', 'In Progress'   # Event happening
+        COMPLETED = 'COMPLETED', 'Completed'         # Event finished
+        CANCELLED = 'CANCELLED', 'Cancelled'         # Order cancelled   
+
+    order_number = models.CharField(
+        max_length=50, unique=True,
+        blank=True, null=True, # For auto-generation later
+        editable=False
+    )
+    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='orders')
+    # Link back to the source quotation if applicable
+    related_quotation = models.ForeignKey(
+        Quotation,
+        on_delete=models.SET_NULL, # Keep order even if original quote is deleted
+        null=True, blank=True,
+        related_name='orders'
+    )
+    title = models.CharField(max_length=255, blank=True, default='', help_text="e.g., Wedding Catering June 15th")
+    status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.CONFIRMED)
+    event_date = models.DateField(null=True, blank=True, help_text="Primary date of the event/order")
+    # Add more dates later if needed e.g., event_start_datetime, event_end_datetime
+
+    # Delivery/Venue address might differ from client's main address
+    delivery_address = models.TextField(blank=True, default='')
+    notes = models.TextField(blank=True, default='', help_text="Internal notes about the order/event")
+
+    # --- Add Discount Fields ---
+    discount_type = models.CharField(
+        max_length=10,
+        choices=DiscountType.choices, # Reuse choices defined earlier
+        default=DiscountType.NONE
+    )
+    discount_value = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00"),
+        help_text="Enter percentage (e.g., 10.00 for 10%) or fixed amount for overall order discount."
+    )
+
+    @property
+    def subtotal(self):
+        """Calculate sum of all line item totals before discounts/taxes."""
+        # Use the related_name 'items' from OrderItem's ForeignKey
+        return sum((item.line_total for item in self.items.all()), Decimal('0.00')).quantize(Decimal("0.01"))
+
+    @property
+    def discount_amount(self):
+        """Calculate the discount amount based on type and value."""
+        # Reuse the logic from Quote/Invoice
+        if self.discount_type == DiscountType.NONE or self.discount_value <= 0:
+            return Decimal("0.00")
+
+        sub = self.subtotal # Use the subtotal property we just defined
+        if self.discount_type == DiscountType.PERCENTAGE:
+            amount = (sub * (self.discount_value / Decimal(100))).quantize(Decimal("0.01"))
+            return amount
+        elif self.discount_type == DiscountType.FIXED:
+            amount = min(sub, self.discount_value).quantize(Decimal("0.01"))
+            return amount
+        return Decimal("0.00")
+    
+    @property
+    def total_before_tax(self):
+        """Calculate total after discount but before tax."""
+        return (self.subtotal - self.discount_amount).quantize(Decimal("0.01"))
+
+    @property
+    def tax_amount(self):
+        """Calculate tax amount based on settings and total_before_tax."""
+        # Use dynamic model loading for Setting
+        Setting = apps.get_model('documents', 'Setting')
+        try:
+            settings = Setting.get_solo()
+            if settings.tax_enabled and settings.tax_rate > 0:
+                tax_rate = settings.tax_rate / Decimal(100)
+                amount = (self.total_before_tax * tax_rate).quantize(Decimal("0.01"))
+                return amount
+        except Setting.DoesNotExist:
+            pass # Settings not created yet
+        return Decimal("0.00")
+
+    @property
+    def grand_total(self):
+        """Calculate the final total including discounts and tax."""
+        return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        num = self.order_number if self.order_number else "Draft Order"
+        return f"Order {num} ({self.client.name})"
+
+    class Meta:
+        ordering = ['-event_date', '-created_at']
+
+    @transaction.atomic
+    def create_invoice(self):
+        """
+        Creates a new draft Invoice based on this Order.
+        Copies details and all line items.
+        Returns the newly created Invoice instance or None if creation is not allowed.
+        """
+        # Get related models safely
+        Invoice = apps.get_model('documents', 'Invoice')
+        InvoiceItem = apps.get_model('documents', 'InvoiceItem')
+        OrderStatus = self.__class__.OrderStatus
+
+        # Prevent creating invoice from Pending or Cancelled orders
+        if self.status in [OrderStatus.PENDING, OrderStatus.CANCELLED]:
+            print(f"Warning: Cannot create invoice for Order {self.order_number} with status {self.status}.")
+            return None
+
+        # Check if an invoice already exists for this order?
+        # For now, allow multiple invoices from one order to support partial billing later.
+        # We might add logic here later if needed.
+
+        # Prepare data for the new Invoice
+        # Fields to copy directly from Order: client, title, discount_type, discount_value, related_quotation
+        # Fields to potentially copy later if added to Order: terms_and_conditions, payment_details
+        invoice_data = {
+            'client': self.client,
+            'related_order': self, # Link back to this order
+            'related_quotation': self.related_quotation, # Carry over link from order
+            'title': self.title or f"Invoice for Order {self.order_number or self.pk}",
+            'status': Invoice.Status.DRAFT, # New invoices start as Draft
+            'discount_type': self.discount_type,
+            'discount_value': self.discount_value,
+            'issue_date': None, # To be set when sent
+            'due_date': None,   # To be set when sent/based on issue_date
+            # Copy other fields if they exist on both models
+            'terms_and_conditions': getattr(self, 'terms_and_conditions', ''),
+            'payment_details': getattr(self, 'payment_details', ''),
+            'notes': getattr(self, 'notes', ''), # Copy internal notes? Maybe not? Let's copy for now.
+        }
+
+        # Create the main Invoice record (triggers auto-numbering)
+        new_invoice = Invoice.objects.create(**invoice_data)
+
+        # Copy line items from OrderItem to InvoiceItem
+        new_invoice_items = []
+        for order_item in self.items.all():
+            new_invoice_items.append(InvoiceItem(
+                invoice=new_invoice,
+                menu_item=order_item.menu_item,
+                description=order_item.description, # Copy specific description
+                quantity=order_item.quantity,
+                unit_price=order_item.unit_price, # Copy specific agreed price
+                grouping_label=order_item.grouping_label
+            ))
+
+        if new_invoice_items:
+            InvoiceItem.objects.bulk_create(new_invoice_items)
+
+        return new_invoice
+
+    def clean(self):
+        """
+        Add validation rules for the Order.
+        - Ensure client matches related_quotation.client if quote is linked.
+        """
+        super().clean() # Call parent's clean method
+
+        # Check client consistency if a related quotation is selected
+        if self.related_quotation_id and self.client_id: # Check if both are set
+            # Avoid fetching full objects if possible, compare IDs
+            # Or fetch the quote client ID if needed
+            try:
+                # Fetch the client ID directly associated with the related quotation
+                quote_client_id = Quotation.objects.values_list('client_id', flat=True).get(pk=self.related_quotation_id)
+                if self.client_id != quote_client_id:
+                    raise ValidationError({
+                        'client': 'Client does not match the client on the selected Quotation.',
+                        'related_quotation': 'Client on this Quotation does not match the Order client.'
+                    })
+            except Quotation.DoesNotExist:
+                # This shouldn't happen due to FK constraints but handle defensively
+                raise ValidationError("Related quotation not found.")
+
+
+class OrderItem(models.Model):
+    """
+    Represents a single line item confirmed for an Order/Event.
+    These details are typically locked in from the accepted Quotation or final agreement.
+    """
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
+    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name='order_items')
+    description = models.TextField(blank=True, help_text="Specific details for this item on this order.")
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit agreed for this order.")
+    grouping_label = models.CharField(max_length=100, blank=True, default='', help_text="Optional label (e.g., 'Day 1 - Lunch')")
+
+    # We will add properties like line_total later
+
+    def __str__(self):
+        order_num = self.order.order_number if self.order_id and self.order.order_number else f"Order PK {self.order_id}"
+        # Add "Order " before {order_num}
+        return f"{self.quantity} x {self.menu_item.name} on Order {order_num}"
+    
+    @property
+    def line_total(self):
+        """Calculate the total for this line item."""
+        # Same logic as QuotationItem/InvoiceItem
+        if self.quantity is not None and self.unit_price is not None:
+            return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+        return Decimal("0.00")
+
+    class Meta:
+        ordering = ['id'] # Order items by creation order within an order
+
+
 class Invoice(models.Model):
     """
     Represents an invoice document header.
@@ -222,9 +506,15 @@ class Invoice(models.Model):
         Quotation,
         on_delete=models.SET_NULL, # Keep invoice if quote is deleted
         null=True, blank=True,
-        related_name='invoices'
+        related_name='invoices_from_quote'
     )
-    # We might add related_order later when that model exists
+    
+    related_order = models.ForeignKey(
+        Order,
+        on_delete=models.SET_NULL, # Keep invoice even if order is deleted? Or PROTECT? Let's use SET_NULL.
+        null=True, blank=True,
+        related_name='invoices' # An order can have multiple invoices (for partial billing later)
+    )
 
     title = models.CharField(max_length=255, blank=True, default='')
     issue_date = models.DateField(null=True, blank=True)
@@ -476,160 +766,9 @@ class Payment(models.Model):
                 raise ValidationError("Cannot find the associated Invoice.")
             
 
-class OrderStatus(models.TextChoices):
-    PENDING = 'PENDING', 'Pending Confirmation' # Maybe if created directly
-    CONFIRMED = 'CONFIRMED', 'Confirmed'       # Likely status after quote accepted or direct order
-    IN_PROGRESS = 'IN_PROGRESS', 'In Progress'   # Event happening
-    COMPLETED = 'COMPLETED', 'Completed'         # Event finished
-    CANCELLED = 'CANCELLED', 'Cancelled'         # Order cancelled   
 
 
-class Order(models.Model):
-    """
-    Represents a confirmed order or event booking, potentially linked from a Quotation.
-    Acts as the source for generating Invoices and Delivery Orders.
-    """
-    order_number = models.CharField(
-        max_length=50, unique=True,
-        blank=True, null=True, # For auto-generation later
-        editable=False
-    )
-    client = models.ForeignKey(Client, on_delete=models.PROTECT, related_name='orders')
-    # Link back to the source quotation if applicable
-    related_quotation = models.ForeignKey(
-        Quotation,
-        on_delete=models.SET_NULL, # Keep order even if original quote is deleted
-        null=True, blank=True,
-        related_name='orders'
-    )
-    title = models.CharField(max_length=255, blank=True, default='', help_text="e.g., Wedding Catering June 15th")
-    status = models.CharField(max_length=15, choices=OrderStatus.choices, default=OrderStatus.CONFIRMED)
-    event_date = models.DateField(null=True, blank=True, help_text="Primary date of the event/order")
-    # Add more dates later if needed e.g., event_start_datetime, event_end_datetime
-
-    # Delivery/Venue address might differ from client's main address
-    delivery_address = models.TextField(blank=True, default='')
-    notes = models.TextField(blank=True, default='', help_text="Internal notes about the order/event")
-
-    # --- Add Discount Fields ---
-    discount_type = models.CharField(
-        max_length=10,
-        choices=DiscountType.choices, # Reuse choices defined earlier
-        default=DiscountType.NONE
-    )
-    discount_value = models.DecimalField(
-        max_digits=10, decimal_places=2, default=Decimal("0.00"),
-        help_text="Enter percentage (e.g., 10.00 for 10%) or fixed amount for overall order discount."
-    )
-
-    @property
-    def subtotal(self):
-        """Calculate sum of all line item totals before discounts/taxes."""
-        # Use the related_name 'items' from OrderItem's ForeignKey
-        return sum((item.line_total for item in self.items.all()), Decimal('0.00')).quantize(Decimal("0.01"))
-
-    @property
-    def discount_amount(self):
-        """Calculate the discount amount based on type and value."""
-        # Reuse the logic from Quote/Invoice
-        if self.discount_type == DiscountType.NONE or self.discount_value <= 0:
-            return Decimal("0.00")
-
-        sub = self.subtotal # Use the subtotal property we just defined
-        if self.discount_type == DiscountType.PERCENTAGE:
-            amount = (sub * (self.discount_value / Decimal(100))).quantize(Decimal("0.01"))
-            return amount
-        elif self.discount_type == DiscountType.FIXED:
-            amount = min(sub, self.discount_value).quantize(Decimal("0.01"))
-            return amount
-        return Decimal("0.00")
-    
-    @property
-    def total_before_tax(self):
-        """Calculate total after discount but before tax."""
-        return (self.subtotal - self.discount_amount).quantize(Decimal("0.01"))
-
-    @property
-    def tax_amount(self):
-        """Calculate tax amount based on settings and total_before_tax."""
-        # Use dynamic model loading for Setting
-        Setting = apps.get_model('documents', 'Setting')
-        try:
-            settings = Setting.get_solo()
-            if settings.tax_enabled and settings.tax_rate > 0:
-                tax_rate = settings.tax_rate / Decimal(100)
-                amount = (self.total_before_tax * tax_rate).quantize(Decimal("0.01"))
-                return amount
-        except Setting.DoesNotExist:
-            pass # Settings not created yet
-        return Decimal("0.00")
-
-    @property
-    def grand_total(self):
-        """Calculate the final total including discounts and tax."""
-        return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
-
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        num = self.order_number if self.order_number else "Draft Order"
-        return f"Order {num} ({self.client.name})"
-
-    class Meta:
-        ordering = ['-event_date', '-created_at']
-
-    def clean(self):
-        """
-        Add validation rules for the Order.
-        - Ensure client matches related_quotation.client if quote is linked.
-        """
-        super().clean() # Call parent's clean method
-
-        # Check client consistency if a related quotation is selected
-        if self.related_quotation_id and self.client_id: # Check if both are set
-            # Avoid fetching full objects if possible, compare IDs
-            # Or fetch the quote client ID if needed
-            try:
-                # Fetch the client ID directly associated with the related quotation
-                quote_client_id = Quotation.objects.values_list('client_id', flat=True).get(pk=self.related_quotation_id)
-                if self.client_id != quote_client_id:
-                    raise ValidationError({
-                        'client': 'Client does not match the client on the selected Quotation.',
-                        'related_quotation': 'Client on this Quotation does not match the Order client.'
-                    })
-            except Quotation.DoesNotExist:
-                # This shouldn't happen due to FK constraints but handle defensively
-                raise ValidationError("Related quotation not found.")
 
 
-class OrderItem(models.Model):
-    """
-    Represents a single line item confirmed for an Order/Event.
-    These details are typically locked in from the accepted Quotation or final agreement.
-    """
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='items')
-    menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT, related_name='order_items')
-    description = models.TextField(blank=True, help_text="Specific details for this item on this order.")
-    quantity = models.DecimalField(max_digits=10, decimal_places=2)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2, help_text="Price per unit agreed for this order.")
-    grouping_label = models.CharField(max_length=100, blank=True, default='', help_text="Optional label (e.g., 'Day 1 - Lunch')")
 
-    # We will add properties like line_total later
 
-    def __str__(self):
-        order_num = self.order.order_number if self.order_id and self.order.order_number else f"Order PK {self.order_id}"
-        # Add "Order " before {order_num}
-        return f"{self.quantity} x {self.menu_item.name} on Order {order_num}"
-    
-    @property
-    def line_total(self):
-        """Calculate the total for this line item."""
-        # Same logic as QuotationItem/InvoiceItem
-        if self.quantity is not None and self.unit_price is not None:
-            return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
-        return Decimal("0.00")
-
-    class Meta:
-        ordering = ['id'] # Order items by creation order within an order
