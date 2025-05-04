@@ -336,19 +336,27 @@ class OrderAdmin(admin.ModelAdmin):
     def create_invoice_link(self, obj):
         """
         Generate a 'Create Invoice' button link for the admin change page.
-        Only show if the order exists and is in a state that allows invoicing.
+        Only show if the order exists, is in an appropriate status,
+        AND if no invoices exist for it yet.
         """
-        # Define statuses from which an invoice can be created
         allowed_statuses = [Order.OrderStatus.CONFIRMED, Order.OrderStatus.IN_PROGRESS, Order.OrderStatus.COMPLETED]
+        # --- Add check for existing invoices ---
+        can_create_first_invoice = not obj.invoices.exists()
+        # --- End Add check ---
 
-        if obj.pk and obj.status in allowed_statuses:
-            # Generate the URL for our create_invoice_from_order view
+        # Modify the condition to include the new check
+        if obj.pk and obj.status in allowed_statuses and can_create_first_invoice:
             url = reverse('documents:order_create_invoice', args=[obj.pk])
-            # Return HTML for a button-like link
+            # Optional: Rename button text -> "Create Initial Full Invoice"?
             return format_html('<a href="{}" class="button">Create Invoice from this Order</a>', url)
-        # Return info message if invoicing isn't allowed for this status
-        return mark_safe(f"<em>(Cannot create invoice for status: {obj.get_status_display()})</em>")
-    create_invoice_link.short_description = 'Invoice Actions' # Label for the fieldset section
+        # --- Add this elif block ---
+        elif obj.invoices.exists():
+             # Show message if invoices already exist
+             return mark_safe("<em>(Invoice(s) already exist for this Order. Create new invoices manually.)</em>")
+        # --- End Add elif ---
+        else: # Original status check failure
+            return mark_safe(f"<em>(Cannot create invoice for status: {obj.get_status_display()})</em>")
+    create_invoice_link.short_description = 'Invoice Actions'
 
     # Keep the Media class for JS auto-population
     class Media:
