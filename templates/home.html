@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Invoice App Home</title>
+    <style>
+        body { font-family: sans-serif; padding: 2em; }
+        nav a { margin-right: 1em; }
+    </style>
+</head>
+<body>
+    <h1>Welcome to the Invoicing Application</h1>
+
+    <nav>
+        {% if user.is_authenticated %}
+            <p>Hello, {{ user.email }}!</p>
+            <a href="{% url 'admin:index' %}">Admin Dashboard</a>
+            {# Add links to list views later #}
+            {# <a href="{% url 'documents:quotation_list' %}">Quotations</a> #}
+            {# <a href="{% url 'documents:invoice_list' %}">Invoices</a> #}
+            <a href="{% url 'account_logout' %}">Log Out</a>
+        {% else %}
+            <p>You are not logged in.</p>
+            <a href="{% url 'account_login' %}">Log In</a>
+            <a href="{% url 'account_signup' %}">Sign Up</a>
+        {% endif %}
+    </nav>
+
+    <p>(Homepage content will go here)</p>
+
+</body>
+</html>

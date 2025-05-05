@@ -37,9 +37,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',
 
     # Third-party apps
     'solo', # Add django-solo here
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
 
     # Invoice app
     'documents.apps.DocumentsConfig',
@@ -53,6 +57,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -60,7 +65,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -105,6 +110,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
+
+
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
@@ -131,3 +138,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # -------------------------------------------------------------------------
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media' # BASE_DIR is usually defined at the top of settings.py
+
+
+AUTHENTICATION_BACKENDS = [
+    # Needed to login by username in Django admin, regardless of `allauth`
+    'django.contrib.auth.backends.ModelBackend',
+
+    # `allauth` specific authentication methods, such as login by email
+    'allauth.account.auth_backends.AuthenticationBackend',
+]
+
+SITE_ID = 1
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+ACCOUNT_LOGIN_METHODS = ["email"]
+ACCOUNT_SIGNUP_FIELDS = ["email*"]
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory' # Require email verification ('optional' or 'none' also possible)
+# ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = False # Optional: simplifies signup form slightly
+ACCOUNT_SESSION_REMEMBER = True          # Optional: Allow "Remember Me" checkbox
+# ACCOUNT_EMAIL_SUBJECT_PREFIX = "[Your Site] " # Optional: Prefix for email subjects
+
+# URLs to redirect to after login/logout
+LOGIN_REDIRECT_URL = '/' # Redirect to home page after login
+ACCOUNT_LOGOUT_REDIRECT_URL = '/' # Redirect to home page after logout

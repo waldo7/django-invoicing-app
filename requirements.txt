@@ -3,6 +3,7 @@ Brotli==1.1.0
 cffi==1.17.1
 cssselect2==0.8.0
 Django==5.2
+django-allauth==65.7.0
 django-solo==2.4.0
 fonttools==4.57.0
 pillow==11.2.1
