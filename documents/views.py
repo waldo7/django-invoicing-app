@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect # Helpful shortcut
 from django.urls import reverse
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth.decorators import login_required
 
 # Import WeasyPrint (will cause error if not installed)
 try:
@@ -215,5 +216,23 @@ def generate_invoice_pdf(request, pk):
         # Redirect back to the invoice detail page
         admin_url = reverse('admin:documents_invoice_change', args=[pk])
         return redirect(admin_url)
+
+
+@login_required # Ensures only logged-in users can access this view
+def quotation_list_view(request):
+    """
+    Display a list of all quotations.
+    """
+    quotations = Quotation.objects.select_related('client').all() # Fetch all quotations, optimize client access
+    settings = Setting.get_solo() # Get settings for currency symbol etc.
+
+    context = {
+        'quotations': quotations,
+        'settings': settings, # Pass settings to template
+    }
+    # Render the template we just created
+    return render(request, 'documents/quotation_list.html', context)
+
+
 
 

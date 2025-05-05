@@ -4,6 +4,10 @@ from django.utils import timezone
 from datetime import date, timedelta
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
+from django.urls import reverse
+from django.test import Client as TestClient
+from django.contrib.auth import get_user_model
+
 
 # Create your tests here.
 from .models import (
@@ -11,6 +15,7 @@ from .models import (
     Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem 
 )
 
+User = get_user_model()
 
 
 class ClientModelTests(TestCase):
@@ -1039,6 +1044,77 @@ class OrderItemModelTests(TestCase):
         self.assertEqual(item.line_total, Decimal("25.00"))
 
 
+class DocumentViewTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        # Create a user for login testing
+        cls.test_user_email = 'testuser@example.com'
+        cls.test_user_password = 'password123'
+        cls.test_user = User.objects.create_user(
+            # No username field, use email for identification if supported by custom manager later,
+            # for default manager, username might still be technically required even if not used for login.
+            # Let's assume email is sufficient for create_user if using allauth setup,
+            # otherwise we might need: username=cls.test_user_email
+            username=cls.test_user_email,
+            email=cls.test_user_email,
+            password=cls.test_user_password
+        )
+        # Need to set email as verified if mandatory verification is on
+        # Easiest for testing is often to temporarily disable verification or use allauth test helpers,
+        # but let's try setting it manually if possible. Requires importing EmailAddress.
+        try:
+            from allauth.account.models import EmailAddress
+            EmailAddress.objects.create(
+                user=cls.test_user,
+                email=cls.test_user_email,
+                primary=True,
+                verified=True
+            )
+        except ImportError:
+             print("WARNING: allauth EmailAddress model not found, cannot mark email as verified for test user.")
+
+
+        # Create some data to view
+        cls.client_obj = Client.objects.create(name="Client for View Test")
+        cls.quote1 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-1", status=Quotation.Status.SENT, issue_date=date.today()) # Added issue_date
+        cls.quote2 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-2", status=Quotation.Status.DRAFT, issue_date=date.today()) # Added issue_date
+        
+
+    def setUp(self):
+        # Create a fresh test client for each test method
+        self.client = TestClient() # Use the imported HTTP test client
+
+    def test_quotation_list_view_logged_out_redirect(self):
+        """Test that accessing the list view when logged out redirects to login."""
+        list_url = reverse('documents:quotation_list')
+        response = self.client.get(list_url)
+        # Expect redirect status code (302)
+        self.assertEqual(response.status_code, 302)
+        # Expect redirect to login URL (fetching it dynamically is best)
+        login_url = reverse('account_login') # Default allauth URL name
+        self.assertRedirects(response, f"{login_url}?next={list_url}")
+
+    def test_quotation_list_view_logged_in_success(self):
+        """Test the list view loads correctly for a logged-in user."""
+        list_url = reverse('documents:quotation_list')
+        # Log the user in using the test client's login method
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        # Make request as logged-in user
+        response = self.client.get(list_url)
+
+        # Check response
+        self.assertEqual(response.status_code, 200) # OK status
+        self.assertTemplateUsed(response, 'documents/quotation_list.html') # Correct template
+        self.assertTemplateUsed(response, 'base.html') # Uses base template
+        self.assertContains(response, "Quotations") # Page title/heading
+        self.assertIn('quotations', response.context) # Context variable exists
+        # Check if specific quote numbers are present in the rendered HTML
+        self.assertContains(response, self.quote1.quotation_number)
+        self.assertContains(response, self.quote2.quotation_number)
+        self.assertContains(response, self.client_obj.name) # Check client name appears
 
 
 

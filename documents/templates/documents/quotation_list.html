@@ -1,0 +1,64 @@
+{% extends 'base.html' %} {# Inherit from our base template #}
+{% load i18n %} {# Load internationalization tags if needed later, good practice #}
+
+{% block title %}Quotations{% endblock %} {# Set the page title #}
+
+{% block content %} {# Fill the content block defined in base.html #}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Quotations</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        {# Link to admin add page for now #}
+        <a href="{% url 'admin:documents_quotation_add' %}" class="btn btn-sm btn-outline-secondary">Add Quotation</a>
+      </div>
+    </div>
+  </div>
+
+  {% if quotations %}
+    <div class="table-responsive">
+      <table class="table table-striped table-sm">
+        <thead>
+          <tr>
+            <th scope="col">Number</th>
+            <th scope="col">Client</th>
+            <th scope="col">Title</th>
+            <th scope="col">Status</th>
+            <th scope="col">Issued</th>
+            <th scope="col">Valid Until</th>
+            <th scope="col">Ver.</th>
+            <th scope="col" style="text-align: right;">Total ({{ settings.currency_symbol }})</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for quote in quotations %}
+            <tr>
+              <td>
+                 {# Link to admin detail page for now #}
+                 <a href="{% url 'admin:documents_quotation_change' quote.pk %}">{{ quote.quotation_number }}</a>
+              </td>
+              <td>{{ quote.client.name }}</td>
+              <td>{{ quote.title|default:"-" }}</td>
+              <td><span class="badge bg-secondary">{{ quote.get_status_display }}</span></td> {# Use Bootstrap badge #}
+              <td>{{ quote.issue_date|date:"Y-m-d"|default:"-" }}</td>
+              <td>{{ quote.valid_until|date:"Y-m-d"|default:"-" }}</td>
+              <td>{{ quote.version }}</td>
+              <td style="text-align: right;">{{ quote.grand_total|floatformat:2 }}</td>
+              <td>
+                 {# Action links #}
+                 <a href="{% url 'documents:quotation_pdf' quote.pk %}" target="_blank" class="action-link" title="View PDF">PDF</a>
+                 {% if quote.status == 'SENT' or quote.status == 'ACCEPTED' or quote.status == 'REJECTED' %} {# Only show revise for certain statuses #}
+                   <a href="{% url 'documents:quotation_revise' quote.pk %}" class="action-link" title="Revise">Revise</a>
+                 {% endif %}
+                 {# Add link to create Order/Invoice later #}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No quotations found.</p>
+  {% endif %}
+
+{% endblock %} {# End the content block #}

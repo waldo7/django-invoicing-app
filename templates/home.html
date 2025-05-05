@@ -1,32 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Invoice App Home</title>
-    <style>
-        body { font-family: sans-serif; padding: 2em; }
-        nav a { margin-right: 1em; }
-    </style>
-</head>
-<body>
-    <h1>Welcome to the Invoicing Application</h1>
+{% extends 'base.html' %} {# Inherit structure from base.html #}
 
-    <nav>
-        {% if user.is_authenticated %}
-            <p>Hello, {{ user.email }}!</p>
-            <a href="{% url 'admin:index' %}">Admin Dashboard</a>
-            {# Add links to list views later #}
-            {# <a href="{% url 'documents:quotation_list' %}">Quotations</a> #}
-            {# <a href="{% url 'documents:invoice_list' %}">Invoices</a> #}
-            <a href="{% url 'account_logout' %}">Log Out</a>
-        {% else %}
-            <p>You are not logged in.</p>
-            <a href="{% url 'account_login' %}">Log In</a>
-            <a href="{% url 'account_signup' %}">Sign Up</a>
-        {% endif %}
-    </nav>
+{% block title %}Home - Invoice App{% endblock %} {# Override the title block #}
 
-    <p>(Homepage content will go here)</p>
+{% block content %} {# Fill the content block defined in base.html #}
+  {# Display Django messages (copied from base, good here too after login redirect) #}
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
 
-</body>
-</html>
+  <div class="bg-light p-5 rounded mt-3"> {# Added Bootstrap jumbotron-like styling #}
+      <h1>Welcome to the Invoicing Application</h1>
+
+      {% if user.is_authenticated %}
+          <p class="lead">You are logged in as {{ user.email }}.</p>
+          <p>Use the navigation bar above to manage Quotations, Invoices, Clients, etc.</p>
+          {# Link is in Navbar in base.html now #}
+          {# <p><a href="{% url 'documents:quotation_list' %}">View Quotations</a></p> #}
+      {% else %}
+          <p class="lead">Please log in or sign up using the links in the navigation bar.</p>
+      {% endif %}
+
+       <p>(Further dashboard elements or summaries can go here later)</p>
+   </div>
+
+{% endblock %} {# End the content block #}

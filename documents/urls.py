@@ -10,6 +10,7 @@ urlpatterns = [
     path('order/<int:pk>/create-invoice/', views.create_invoice_from_order, name='order_create_invoice'),
     path('quotation/<int:pk>/pdf/', views.generate_quotation_pdf, name='quotation_pdf'),
     path('invoice/<int:pk>/pdf/', views.generate_invoice_pdf, name='invoice_pdf'),
+    path('quotations/', views.quotation_list_view, name='quotation_list'),
 
 
 ]
