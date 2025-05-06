@@ -55,14 +55,15 @@ class QuotationAdmin(admin.ModelAdmin):
     # Make auto-generated/timestamp fields read-only
     readonly_fields = (
         'quotation_number', 'version', 'created_at', 'updated_at', ''
-        'previous_version', 'revise_quotation_link', 'view_pdf_link'
+        'previous_version', 'revise_quotation_link', 
+        'preview_draft_pdf_link', 'view_final_pdf_link'
         )
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
         (None, {
             'fields': ('client', 'title', 'status')
         }),
-        ('Actions', {'fields': ('revise_quotation_link', 'view_pdf_link',)}),
+        ('Actions', {'fields': ('revise_quotation_link', 'preview_draft_pdf_link', 'view_final_pdf_link',)}),
         # Section 2: Dates
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
@@ -115,15 +116,26 @@ class QuotationAdmin(admin.ModelAdmin):
     revise_quotation_link.short_description = 'Revise' # Label for the fieldset section
     # revise_quotation_link.allow_tags = True # Deprecated in newer Django, format_html handles safety
 
-    def view_pdf_link(self, obj):
-        """Generate a 'View PDF' button link."""
-        if obj.pk: # Check if the object has been saved
-             # Generate URL for the PDF view
-             url = reverse('documents:quotation_pdf', args=[obj.pk])
-             # Return HTML for a link styled as button, opening in new tab
-             return format_html('<a href="{}" class="button" target="_blank">View PDF</a>', url)
-        return mark_safe("<em>(Save quotation first to view PDF)</em>")
-    view_pdf_link.short_description = 'PDF' # Label for the fieldset
+    def preview_draft_pdf_link(self, obj):
+        if obj.pk and obj.status == Quotation.Status.DRAFT:
+            url = reverse('documents:quotation_pdf', args=[obj.pk])
+            return format_html('<a href="{}" class="button" target="_blank">Preview Draft PDF</a>', url)
+        return "-" # Show dash if not applicable
+    preview_draft_pdf_link.short_description = 'Draft PDF'
+
+    def view_final_pdf_link(self, obj):
+        # Define statuses for which a "final" PDF makes sense
+        final_statuses = [
+            Quotation.Status.SENT,
+            Quotation.Status.ACCEPTED,
+            Quotation.Status.REJECTED,
+            # Exclude DRAFT, SUPERSEDED
+        ]
+        if obj.pk and obj.status in final_statuses:
+            url = reverse('documents:quotation_pdf', args=[obj.pk])
+            return format_html('<a href="{}" class="button" target="_blank">View Final PDF</a>', url)
+        return "-" # Show dash if not applicable
+    view_final_pdf_link.short_description = 'Final PDF'
 
     class Media:
         # List of JS files to include on the admin change/add pages
@@ -152,12 +164,12 @@ class InvoiceAdmin(admin.ModelAdmin):
         'invoice_number', 'created_at', 'updated_at', 
         'display_amount_paid', 'display_balance_due', 'display_grand_total_detail',
         'related_order',
-        'view_pdf_link'
+        'preview_draft_pdf_link', 'view_final_pdf_link',
         )
     fieldsets = (
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'related_order', 'title', 'status')}),
-        ('Actions', {'fields': ('view_pdf_link',)}),
+        ('Actions', {'fields': ('preview_draft_pdf_link', 'view_final_pdf_link',)}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
         ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
@@ -198,15 +210,26 @@ class InvoiceAdmin(admin.ModelAdmin):
          except Exception: return "Error"
     display_balance_due.short_description = 'Balance Due'
 
-    def view_pdf_link(self, obj):
-        """Generate a 'View PDF' button link for the Invoice."""
-        if obj.pk: # Check if the object has been saved
-             # Generate URL for the PDF view
-             url = reverse('documents:invoice_pdf', args=[obj.pk])
-             # Return HTML for a link styled as button, opening in new tab
-             return format_html('<a href="{}" class="button" target="_blank">View PDF</a>', url)
-        return mark_safe("<em>(Save invoice first to view PDF)</em>")
-    view_pdf_link.short_description = 'PDF Action' # Label for the fieldset section
+    def preview_draft_pdf_link(self, obj):
+        if obj.pk and obj.status == Invoice.Status.DRAFT:
+            url = reverse('documents:invoice_pdf', args=[obj.pk])
+            return format_html('<a href="{}" class="button" target="_blank">Preview Draft PDF</a>', url)
+        return "-"
+    preview_draft_pdf_link.short_description = 'Draft PDF'
+
+    def view_final_pdf_link(self, obj):
+        # Define statuses for which a "final" PDF makes sense
+        final_statuses = [
+            Invoice.Status.SENT.value,
+            Invoice.Status.PAID.value,
+            Invoice.Status.PARTIALLY_PAID.value,
+            # Exclude DRAFT, CANCELLED
+        ]
+        if obj.pk and obj.status in final_statuses:
+            url = reverse('documents:invoice_pdf', args=[obj.pk])
+            return format_html('<a href="{}" class="button" target="_blank">View Final PDF</a>', url)
+        return "-"
+    view_final_pdf_link.short_description = 'Final PDF'
 
     class Media:
         js = ('documents/js/admin_inline_autofill.js',) # Same JS file needed here too

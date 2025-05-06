@@ -117,11 +117,14 @@ def generate_quotation_pdf(request, pk):
         settings = Setting.get_solo()
         items = quotation.items.all()
 
+        is_draft = (quotation.status == Quotation.Status.DRAFT)
+
         # Prepare context for the template
         context = {
             'quotation': quotation,
             'items': items,
             'settings': settings,
+            'is_draft': is_draft,
         }
 
         # Render the HTML template to a string
@@ -176,11 +179,14 @@ def generate_invoice_pdf(request, pk):
         settings = Setting.get_solo()
         items = invoice.items.all() # Use related_name 'items'
 
+        is_draft = (invoice.status == Invoice.Status.DRAFT)
+
         # Prepare context for the template
         context = {
             'invoice': invoice,
             'items': items,
             'settings': settings,
+            'is_draft': is_draft,
         }
 
         # Render the HTML template to a string

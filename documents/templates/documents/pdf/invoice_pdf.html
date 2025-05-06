@@ -32,10 +32,24 @@
         .terms, .payment-info { margin-top: 30px; font-size: 9pt; border-top: 1px solid #ccc; padding-top: 10px; }
         h1 { text-align: right; color: #555; margin-bottom: 30px; }
         .logo { max-height: 80px; max-width: 200px; margin-bottom: 10px; }
+
+        /* Watermark Styling */
+        .watermark {
+            position: fixed; top: 35%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 100pt; color: rgba(200, 0, 0, 0.1);
+            font-weight: bold; z-index: -1000;
+            white-space: nowrap; opacity: 0.8;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
-
+    {# --- Add Watermark if Draft --- #}
+    {% if is_draft %}
+        <div class="watermark">DRAFT</div>
+    {% endif %}
+    {# --- End Watermark --- #}
     <h1>INVOICE</h1>
 
     <table class="header-table">

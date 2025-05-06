@@ -88,9 +88,29 @@
             max-width: 200px;
             margin-bottom: 10px;
         }
+
+        /* Watermark Styling */
+        .watermark {
+            position: fixed; /* Position relative to the page */
+            top: 35%;       /* Adjust vertical position */
+            left: 50%;      /* Center horizontally */
+            transform: translate(-50%, -50%) rotate(-45deg); /* Center and rotate */
+            font-size: 100pt; /* Large font size */
+            color: rgba(200, 0, 0, 0.1); /* Faint red color (adjust as needed) */
+            font-weight: bold;
+            z-index: -1000;  /* Place behind other content */
+            white-space: nowrap; /* Prevent wrapping */
+            opacity: 0.8; /* Overall element opacity */
+            pointer-events: none; /* Prevent interfering with text selection */
+        }
     </style>
 </head>
 <body>
+    {# --- Add Watermark if Draft --- #}
+    {% if is_draft %}
+        <div class="watermark">DRAFT</div>
+    {% endif %}
+    {# --- End Watermark --- #}
 
     <h1>QUOTATION</h1>
 
