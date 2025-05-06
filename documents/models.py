@@ -1,14 +1,15 @@
 from django.core.validators import MinValueValidator # To ensure amount is positive
 from django.core.exceptions import ValidationError
+from solo.models import SingletonModel
+from django.utils import timezone # For default dates
+from django.db import transaction
+from django.db.models import Sum
+from django.conf import settings # Needed for ForeignKey to User if we add created_by later
+from django.urls import reverse
 from datetime import timedelta # Needed for adding days to a date
 from django.db import models
-from django.conf import settings # Needed for ForeignKey to User if we add created_by later
-from django.utils import timezone # For default dates
-from decimal import Decimal
-from solo.models import SingletonModel
 from django.apps import apps
-from django.db.models import Sum
-from django.db import transaction
+from decimal import Decimal
 
 # Create your models here.
 class Client(models.Model):
@@ -164,6 +165,13 @@ class Quotation(models.Model):
     def grand_total(self):
         """Calculate the final total including discounts and tax."""
         return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
+    
+    def get_admin_url(self):
+        """
+        Returns the URL to the admin change page for this quotation instance.
+        """
+        # Uses the standard admin URL naming convention: admin:<app_label>_<model_name>_change
+        return reverse('admin:documents_quotation_change', args=[self.pk])
 
     def __str__(self):
         return f"Quotation {self.quotation_number} ({self.client.name})"

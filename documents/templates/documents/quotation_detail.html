@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Quotation {{ quotation.quotation_number|default:quotation.pk }}{% endblock %}
+
+{% block content %}
+  {# Header Row with Title and Actions #}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Quotation {{ quotation.quotation_number|default:"Draft" }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{{ quotation.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a> {# We'll add get_admin_url method later #}
+        <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a>
+        {% if quotation.status == 'SENT' or quotation.status == 'ACCEPTED' or quotation.status == 'REJECTED' %}
+          <a href="{% url 'documents:quotation_revise' quotation.pk %}" class="btn btn-sm btn-outline-warning">Revise</a>
+        {% endif %}
+        {# Add "Create Order/Invoice" button later #}
+      </div>
+    </div>
+  </div>
+
+  {# Info Row: Client / Quote Details #}
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <h5>To:</h5>
+      <p>
+        <strong>{{ quotation.client.name }}</strong><br>
+        {{ quotation.client.address|linebreaksbr|default:"" }}<br>
+        {% if quotation.client.email %}Email: {{ quotation.client.email }}<br>{% endif %}
+        {% if quotation.client.phone %}Phone: {{ quotation.client.phone }}{% endif %}
+      </p>
+    </div>
+    <div class="col-md-6 text-md-end">
+      {% if quotation.title %}<h5>Subject: {{ quotation.title }}</h5>{% endif %}
+      <p>
+        <strong>Status:</strong> <span class="badge bg-secondary">{{ quotation.get_status_display }}</span><br>
+        <strong>Version:</strong> {{ quotation.version }} {% if quotation.previous_version %}(Revises: {{ quotation.previous_version.quotation_number }}){% endif %}<br>
+        <strong>Issued:</strong> {{ quotation.issue_date|date:"Y-m-d"|default:"N/A" }}<br>
+        <strong>Valid Until:</strong> {{ quotation.valid_until|date:"Y-m-d"|default:"N/A" }}<br>
+      </p>
+    </div>
+  </div>
+
+  {# Line Items Table #}
+  <h5>Items</h5>
+  <div class="table-responsive">
+    <table class="table table-striped table-sm">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Description</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end">Unit Price</th>
+          <th class="text-end">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.menu_item.name }}</td>
+            <td>{{ item.description|linebreaksbr }}</td>
+            <td class="text-end">{{ item.quantity|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.unit_price|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.line_total|floatformat:2 }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">No items on this quotation.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Totals #}
+  <div class="row justify-content-end mt-3">
+    <div class="col-md-5 col-lg-4">
+      <table class="table table-sm">
+         <tr>
+            <th class="text-end">Subtotal:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ quotation.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% if quotation.discount_amount > 0 %}
+        <tr>
+            <th class="text-end">Discount ({{ quotation.get_discount_type_display }} {% if quotation.discount_type == 'PERCENT' %}{{ quotation.discount_value|floatformat:2 }}%{% endif %}):</th>
+            <td class="text-end">- {{ settings.currency_symbol }} {{ quotation.discount_amount|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <th class="text-end">Total before Tax:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ quotation.total_before_tax|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        {% if settings.tax_enabled and quotation.tax_amount > 0 %}
+        <tr>
+            <th class="text-end">SST ({{ settings.tax_rate|floatformat:2 }}%):</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ quotation.tax_amount|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <th class="text-end">Grand Total:</th>
+            <td class="text-end"><strong>{{ settings.currency_symbol }} {{ quotation.grand_total|floatformat:2 }}</strong></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  {# Terms and Conditions #}
+  {% if quotation.terms_and_conditions %}
+    <div class="mt-4">
+      <h5>Terms & Conditions:</h5>
+      <p style="white-space: pre-wrap;">{{ quotation.terms_and_conditions }}</p> {# Preserve formatting #}
+    </div>
+  {% endif %}
+
+{% endblock %}

@@ -35,7 +35,7 @@
             <tr>
               <td>
                  {# Link to admin detail page for now #}
-                 <a href="{% url 'admin:documents_quotation_change' quote.pk %}">{{ quote.quotation_number }}</a>
+                 <a href="{% url 'documents:quotation_detail' quote.pk %}">{{ quote.quotation_number }}</a>
               </td>
               <td>{{ quote.client.name }}</td>
               <td>{{ quote.title|default:"-" }}</td>

@@ -1074,12 +1074,23 @@ class DocumentViewTests(TestCase):
         except ImportError:
              print("WARNING: allauth EmailAddress model not found, cannot mark email as verified for test user.")
 
+        Setting.get_solo() # Creates the singleton if it doesn't exist
+
 
         # Create some data to view
         cls.client_obj = Client.objects.create(name="Client for View Test")
         cls.quote1 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-1", status=Quotation.Status.SENT, issue_date=date.today()) # Added issue_date
         cls.quote2 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-2", status=Quotation.Status.DRAFT, issue_date=date.today()) # Added issue_date
         
+        # Make sure quote numbers are generated if needed elsewhere
+        cls.quote1.refresh_from_db()
+        cls.quote2.refresh_from_db()
+
+        # --- Add items to quote1 for detail view testing ---
+        menu_item = MenuItem.objects.create(name="Detail Test Item", unit_price=Decimal("50.00"))
+        QuotationItem.objects.create(quotation=cls.quote1, menu_item=menu_item, quantity=2, unit_price=Decimal("50.00")) # 100.00
+        # --- End Add items ---
+
         # Need issue_date as it's required on save now (even if optional in model)
         # unless create allows None? Let's add it.
         today = date.today()
@@ -1151,3 +1162,40 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, self.inv1.invoice_number)
         self.assertContains(response, self.inv2.invoice_number)
         self.assertContains(response, self.client_obj.name)
+
+    def test_quotation_detail_view_logged_out_redirect(self):
+        """Test accessing detail view when logged out redirects to login."""
+        detail_url = reverse('documents:quotation_detail', args=[self.quote1.pk])
+        response = self.client.get(detail_url) # Use the HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={detail_url}")
+
+    def test_quotation_detail_view_logged_in_success(self):
+        """Test the detail view loads correctly for a logged-in user."""
+        detail_url = reverse('documents:quotation_detail', args=[self.quote1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, 200) # OK status
+        self.assertTemplateUsed(response, 'documents/quotation_detail.html') # Correct template
+        self.assertTemplateUsed(response, 'base.html') # Uses base template
+        self.assertContains(response, f"Quotation {self.quote1.quotation_number}") # Heading/Title check
+        self.assertIn('quotation', response.context) # Context variable exists
+        self.assertEqual(response.context['quotation'], self.quote1) # Correct quote object passed
+        self.assertIn('items', response.context) # Items passed
+        self.assertContains(response, "Detail Test Item") # Check item name rendered
+        self.assertContains(response, "100.00") # Check item line total rendered (or grand total)
+
+    def test_quotation_detail_view_not_found(self):
+        """Test accessing detail view for a non-existent quote returns 404."""
+        # Use a PK that is unlikely to exist
+        invalid_pk = self.quote1.pk + self.quote2.pk + 100
+        detail_url = reverse('documents:quotation_detail', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 404) # Not Found status

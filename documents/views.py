@@ -250,3 +250,20 @@ def invoice_list_view(request):
     return render(request, 'documents/invoice_list.html', context)
 
 
+@login_required
+def quotation_detail_view(request, pk):
+    """
+    Display the details of a single quotation.
+    """
+    # Fetch the specific quotation, ensuring client data is fetched efficiently
+    quotation = get_object_or_404(Quotation.objects.select_related('client'), pk=pk)
+    # Fetch related items, also getting linked menu_item efficiently
+    items = quotation.items.select_related('menu_item').all()
+    settings = Setting.get_solo()
+
+    context = {
+        'quotation': quotation,
+        'items': items,
+        'settings': settings,
+    }
+    return render(request, 'documents/quotation_detail.html', context)
