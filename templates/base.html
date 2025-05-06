@@ -33,12 +33,12 @@
                 <a class="nav-link {% if request.resolver_match.view_name == 'documents:quotation_list' %}active{% endif %}" href="{% url 'documents:quotation_list' %}">Quotations</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link" href="#">Invoices</a> {# Placeholder #}
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:invoice_list' %}active{% endif %}" href="{% url 'documents:invoice_list' %}">Invoices</a>
               </li>
-               <li class="nav-item">
+              <li class="nav-item">
                 <a class="nav-link" href="#">Orders</a> {# Placeholder #}
               </li>
-               <li class="nav-item">
+              <li class="nav-item">
                 <a class="nav-link" href="#">Clients</a> {# Placeholder #}
               </li>
             {% endif %}

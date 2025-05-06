@@ -234,5 +234,19 @@ def quotation_list_view(request):
     return render(request, 'documents/quotation_list.html', context)
 
 
+@login_required
+def invoice_list_view(request):
+    """
+    Display a list of all invoices.
+    """
+    invoices = Invoice.objects.select_related('client').all() # Fetch all invoices
+    settings = Setting.get_solo() # Get settings for currency symbol etc.
+
+    context = {
+        'invoices': invoices,
+        'settings': settings,
+    }
+    # Point to the new template we will create
+    return render(request, 'documents/invoice_list.html', context)
 
 

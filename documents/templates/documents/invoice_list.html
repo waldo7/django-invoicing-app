@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Invoices{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Invoices</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        {# Link to admin add page for now #}
+        <a href="{% url 'admin:documents_invoice_add' %}" class="btn btn-sm btn-outline-secondary">Add Invoice</a>
+      </div>
+    </div>
+  </div>
+
+  {% if invoices %}
+    <div class="table-responsive">
+      <table class="table table-striped table-sm">
+        <thead>
+          <tr>
+            <th scope="col">Number</th>
+            <th scope="col">Client</th>
+            <th scope="col">Title</th>
+            <th scope="col">Status</th>
+            <th scope="col">Issued</th>
+            <th scope="col">Due Date</th>
+            <th scope="col" style="text-align: right;">Total ({{ settings.currency_symbol }})</th>
+            <th scope="col" style="text-align: right;">Balance Due ({{ settings.currency_symbol }})</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for invoice in invoices %}
+            <tr>
+              <td>
+                 <a href="{% url 'admin:documents_invoice_change' invoice.pk %}">{{ invoice.invoice_number|default:"DRAFT" }}</a>
+              </td>
+              <td>{{ invoice.client.name }}</td>
+              <td>{{ invoice.title|default:"-" }}</td>
+              <td><span class="badge bg-info text-dark">{{ invoice.get_status_display }}</span></td> {# Different badge color #}
+              <td>{{ invoice.issue_date|date:"Y-m-d"|default:"-" }}</td>
+              <td>{{ invoice.due_date|date:"Y-m-d"|default:"-" }}</td>
+              <td style="text-align: right;">{{ invoice.grand_total|floatformat:2 }}</td>
+              <td style="text-align: right;">{{ invoice.balance_due|floatformat:2 }}</td>
+              <td>
+                 {# Action links #}
+                 <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="action-link" title="View PDF">PDF</a>
+                 {# Maybe add link to add payment later? #}
+                 {# <a href="#" class="action-link" title="Add Payment">Pay</a> #}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No invoices found.</p>
+  {% endif %}
+
+{% endblock %}

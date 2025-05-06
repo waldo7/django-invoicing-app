@@ -1080,6 +1080,15 @@ class DocumentViewTests(TestCase):
         cls.quote1 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-1", status=Quotation.Status.SENT, issue_date=date.today()) # Added issue_date
         cls.quote2 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-2", status=Quotation.Status.DRAFT, issue_date=date.today()) # Added issue_date
         
+        # Need issue_date as it's required on save now (even if optional in model)
+        # unless create allows None? Let's add it.
+        today = date.today()
+        cls.inv1 = Invoice.objects.create(client=cls.client_obj, issue_date=today, status=Invoice.Status.SENT)
+        cls.inv2 = Invoice.objects.create(client=cls.client_obj, issue_date=today, status=Invoice.Status.DRAFT)
+        # Refresh to get generated numbers
+        cls.inv1.refresh_from_db()
+        cls.inv2.refresh_from_db()
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1117,4 +1126,28 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, self.client_obj.name) # Check client name appears
 
 
+    def test_invoice_list_view_logged_out_redirect(self):
+        """Test accessing invoice list view when logged out redirects to login."""
+        list_url = reverse('documents:invoice_list')
+        response = self.client.get(list_url) # Use the HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={list_url}")
 
+    def test_invoice_list_view_logged_in_success(self):
+        """Test the invoice list view loads correctly for a logged-in user."""
+        list_url = reverse('documents:invoice_list')
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/invoice_list.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, "Invoices") # Page title/heading
+        self.assertIn('invoices', response.context) # Context variable exists
+        # Check if specific invoice numbers/client are present
+        self.assertContains(response, self.inv1.invoice_number)
+        self.assertContains(response, self.inv2.invoice_number)
+        self.assertContains(response, self.client_obj.name)
