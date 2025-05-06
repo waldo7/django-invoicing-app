@@ -1100,6 +1100,14 @@ class DocumentViewTests(TestCase):
         cls.inv1.refresh_from_db()
         cls.inv2.refresh_from_db()
 
+        # --- Add items and payment to inv1 for detail view testing ---
+        menu_item_inv = MenuItem.objects.create(name="Inv Detail Item", unit_price=Decimal("80.00"))
+        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv, quantity=1, unit_price=Decimal("80.00")) # 80.00
+        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv, quantity=1, unit_price=Decimal("20.50")) # 20.50
+        # Total = 100.50 (assuming no tax/discount for simplicity in this setup)
+        Payment.objects.create(invoice=cls.inv1, amount=Decimal("50.00"), payment_date=today) # Add a partial payment
+        # --- End Add items/payment ---
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1194,6 +1202,44 @@ class DocumentViewTests(TestCase):
         # Use a PK that is unlikely to exist
         invalid_pk = self.quote1.pk + self.quote2.pk + 100
         detail_url = reverse('documents:quotation_detail', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 404) # Not Found status
+
+    def test_invoice_detail_view_logged_out_redirect(self):
+        """Test accessing invoice detail view when logged out redirects to login."""
+        detail_url = reverse('documents:invoice_detail', args=[self.inv1.pk])
+        response = self.client.get(detail_url) # Use the HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={detail_url}")
+
+    def test_invoice_detail_view_logged_in_success(self):
+        """Test the invoice detail view loads correctly for a logged-in user."""
+        detail_url = reverse('documents:invoice_detail', args=[self.inv1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, 200) # OK status
+        self.assertTemplateUsed(response, 'documents/invoice_detail.html') # Correct template
+        self.assertTemplateUsed(response, 'base.html') # Uses base template
+        self.assertContains(response, f"Invoice {self.inv1.invoice_number}") # Heading/Title check
+        self.assertIn('invoice', response.context) # Context variable exists
+        self.assertEqual(response.context['invoice'], self.inv1) # Correct invoice object passed
+        self.assertIn('items', response.context) # Items passed
+        self.assertContains(response, "Inv Detail Item") # Check item name rendered
+        self.assertContains(response, "100.50") # Check grand total rendered (sum of 80 + 20.50)
+        self.assertContains(response, "50.00") # Check amount paid rendered
+        self.assertContains(response, "50.50") # Check balance due rendered (100.50 - 50.00)
+
+    def test_invoice_detail_view_not_found(self):
+        """Test accessing detail view for a non-existent invoice returns 404."""
+        invalid_pk = self.inv1.pk + self.inv2.pk + 100
+        detail_url = reverse('documents:invoice_detail', args=[invalid_pk])
         login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
         self.assertTrue(login_successful, "Test user login failed")
 

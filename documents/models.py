@@ -592,6 +592,12 @@ class Invoice(models.Model):
     def grand_total(self):
         """Calculate the final total including discounts and tax."""
         return (self.total_before_tax + self.tax_amount).quantize(Decimal("0.01"))
+    
+    def get_admin_url(self):
+        """
+        Returns the URL to the admin change page for this invoice instance.
+        """
+        return reverse('admin:documents_invoice_change', args=[self.pk])
 
     def __str__(self):
         num = self.invoice_number if self.invoice_number else "Draft"

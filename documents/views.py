@@ -267,3 +267,21 @@ def quotation_detail_view(request, pk):
         'settings': settings,
     }
     return render(request, 'documents/quotation_detail.html', context)
+
+
+@login_required
+def invoice_detail_view(request, pk):
+    """
+    Display the details of a single invoice.
+    """
+    invoice = get_object_or_404(Invoice.objects.select_related('client', 'related_order', 'related_quotation'), pk=pk)
+    items = invoice.items.select_related('menu_item').all()
+    settings = Setting.get_solo()
+
+    context = {
+        'invoice': invoice,
+        'items': items,
+        'settings': settings,
+    }
+    return render(request, 'documents/invoice_detail.html', context)
+

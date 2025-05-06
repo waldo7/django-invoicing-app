@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Invoice {{ invoice.invoice_number|default:invoice.pk }}{% endblock %}
+
+{% block content %}
+  {# Header Row with Title and Actions #}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Invoice {{ invoice.invoice_number|default:"Draft" }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{{ invoice.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a>
+        {# Add other actions like 'Record Payment' or 'Send' later #}
+      </div>
+    </div>
+  </div>
+
+  {# Info Row: Client / Invoice Details #}
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <h5>To:</h5>
+      <p>
+        <strong>{{ invoice.client.name }}</strong><br>
+        {{ invoice.client.address|linebreaksbr|default:"" }}<br>
+        {% if invoice.client.email %}Email: {{ invoice.client.email }}<br>{% endif %}
+        {% if invoice.client.phone %}Phone: {{ invoice.client.phone }}{% endif %}
+      </p>
+    </div>
+    <div class="col-md-6 text-md-end">
+      {% if invoice.title %}<h5>Subject: {{ invoice.title }}</h5>{% endif %}
+      <p>
+        <strong>Status:</strong> <span class="badge bg-info text-dark">{{ invoice.get_status_display }}</span><br>
+        <strong>Issued:</strong> {{ invoice.issue_date|date:"Y-m-d"|default:"N/A" }}<br>
+        <strong>Due Date:</strong> {{ invoice.due_date|date:"Y-m-d"|default:"N/A" }}<br>
+         {% if invoice.related_order %}
+            <strong>Order Ref #:</strong> {{ invoice.related_order.order_number|default:invoice.related_order.pk }}<br>
+         {% endif %}
+         {% if invoice.related_quotation %}
+            <strong>Quote Ref #:</strong> {{ invoice.related_quotation.quotation_number|default:invoice.related_quotation.pk }}<br>
+         {% endif %}
+      </p>
+    </div>
+  </div>
+
+  {# Line Items Table #}
+  <h5>Items</h5>
+  <div class="table-responsive">
+    <table class="table table-striped table-sm">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Description</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end">Unit Price</th>
+          <th class="text-end">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %} {# Assumes 'items' from context (invoice.items.all) #}
+          <tr>
+            <td>{{ item.menu_item.name }}</td>
+            <td>{{ item.description|linebreaksbr }}</td>
+            <td class="text-end">{{ item.quantity|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.unit_price|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.line_total|floatformat:2 }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">No items on this invoice.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Totals & Payment Summary #}
+  <div class="row justify-content-end mt-3">
+    <div class="col-md-5 col-lg-4">
+      <table class="table table-sm">
+         <tr>
+            <th class="text-end">Subtotal:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ invoice.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% if invoice.discount_amount > 0 %}
+        <tr>
+            <th class="text-end">Discount ({{ invoice.get_discount_type_display }} {% if invoice.discount_type == 'PERCENT' %}{{ invoice.discount_value|floatformat:2 }}%{% endif %}):</th>
+            <td class="text-end">- {{ settings.currency_symbol }} {{ invoice.discount_amount|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <th class="text-end">Total before Tax:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ invoice.total_before_tax|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        {% if settings.tax_enabled and invoice.tax_amount > 0 %}
+        <tr>
+            <th class="text-end">SST ({{ settings.tax_rate|floatformat:2 }}%):</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ invoice.tax_amount|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <th class="text-end">Grand Total:</th>
+            <td class="text-end"><strong>{{ settings.currency_symbol }} {{ invoice.grand_total|floatformat:2 }}</strong></td>
+        </tr>
+        {# --- Payment Summary --- #}
+        <tr style="border-top: 2px solid #666;">
+            <th class="text-end pt-3">Amount Paid:</th>
+            <td class="text-end pt-3">{{ settings.currency_symbol }} {{ invoice.amount_paid|floatformat:2 }}</td>
+        </tr>
+         <tr>
+            <th class="text-end">Balance Due:</th>
+            <td class="text-end"><strong>{{ settings.currency_symbol }} {{ invoice.balance_due|floatformat:2 }}</strong></td>
+        </tr>
+         {# --- End Payment Summary --- #}
+      </table>
+    </div>
+  </div>
+
+  {# Payment Details #}
+  {% if invoice.payment_details %}
+    <div class="mt-4">
+      <h5>Payment Details:</h5>
+      <p style="white-space: pre-wrap;">{{ invoice.payment_details }}</p>
+    </div>
+  {% endif %}
+
+  {# Terms and Conditions #}
+  {% if invoice.terms_and_conditions %}
+    <div class="mt-4">
+      <h5>Terms & Conditions:</h5>
+      <p style="white-space: pre-wrap;">{{ invoice.terms_and_conditions }}</p>
+    </div>
+  {% endif %}
+
+{% endblock %}

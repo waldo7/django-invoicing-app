@@ -34,8 +34,8 @@
           {% for invoice in invoices %}
             <tr>
               <td>
-                 <a href="{% url 'admin:documents_invoice_change' invoice.pk %}">{{ invoice.invoice_number|default:"DRAFT" }}</a>
-              </td>
+                 <a href="{% url 'documents:invoice_detail' invoice.pk %}">{{ invoice.invoice_number|default:"DRAFT" }}</a>
+             </td>
               <td>{{ invoice.client.name }}</td>
               <td>{{ invoice.title|default:"-" }}</td>
               <td><span class="badge bg-info text-dark">{{ invoice.get_status_display }}</span></td> {# Different badge color #}
