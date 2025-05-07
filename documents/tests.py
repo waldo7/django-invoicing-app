@@ -1352,6 +1352,15 @@ class DocumentViewTests(TestCase):
         Payment.objects.create(invoice=cls.inv1, amount=Decimal("50.00"), payment_date=today) # Add a partial payment
         # --- End Add items/payment ---
 
+        # --- Add Order creation ---
+        today = date.today() # May 7, 2025
+        cls.order1 = Order.objects.create(client=cls.client_obj, event_date=today, status=Order.OrderStatus.CONFIRMED, title="Order 1")
+        cls.order2 = Order.objects.create(client=cls.client_obj, event_date=today - timedelta(days=5), status=Order.OrderStatus.IN_PROGRESS, title="Order 2 Past")
+        # Refresh to get generated numbers
+        cls.order1.refresh_from_db()
+        cls.order2.refresh_from_db()
+        # --- End Add ---
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1489,3 +1498,32 @@ class DocumentViewTests(TestCase):
 
         response = self.client.get(detail_url)
         self.assertEqual(response.status_code, 404) # Not Found status
+
+    def test_order_list_view_logged_out_redirect(self):
+        """Test accessing order list view when logged out redirects to login."""
+        list_url = reverse('documents:order_list')
+        response = self.client.get(list_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={list_url}")
+
+    def test_order_list_view_logged_in_success(self):
+        """Test the order list view loads correctly for a logged-in user."""
+        list_url = reverse('documents:order_list')
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/order_list.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, "Orders") # Page title/heading
+        self.assertIn('orders', response.context) # Context variable
+        # Check if specific order numbers/client are present
+        self.assertContains(response, self.order1.order_number)
+        self.assertContains(response, self.order2.order_number)
+        self.assertContains(response, self.client_obj.name)
+
+
+

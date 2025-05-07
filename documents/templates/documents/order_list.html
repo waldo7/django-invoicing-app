@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Orders{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Orders</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{% url 'admin:documents_order_add' %}" class="btn btn-sm btn-outline-secondary">Add Order</a>
+      </div>
+    </div>
+  </div>
+
+  {% if orders %}
+    <div class="table-responsive">
+      <table class="table table-striped table-sm">
+        <thead>
+          <tr>
+            <th scope="col">Number</th>
+            <th scope="col">Client</th>
+            <th scope="col">Title</th>
+            <th scope="col">Status</th>
+            <th scope="col">Event Date</th>
+            <th scope="col" style="text-align: right;">Total ({{ settings.currency_symbol }})</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+            <tr>
+              <td>
+                 {# Link to admin detail page for now - will update to frontend detail later #}
+                 <a href="{% url 'admin:documents_order_change' order.pk %}">{{ order.order_number|default:"DRAFT_ORD" }}</a>
+              </td>
+              <td>{{ order.client.name }}</td>
+              <td>{{ order.title|default:"-" }}</td>
+              <td><span class="badge bg-warning text-dark">{{ order.get_status_display }}</span></td> {# Different badge #}
+              <td>{{ order.event_date|date:"Y-m-d"|default:"-" }}</td>
+              <td style="text-align: right;">{{ order.grand_total|floatformat:2 }}</td>
+              <td>
+                 {# Action links - placeholder for now, could link to admin or future detail view #}
+                 <a href="{% url 'admin:documents_order_change' order.pk %}" class="action-link" title="View/Edit">Details</a>
+                 {# Add link to create invoice from order later if status allows #}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No orders found.</p>
+  {% endif %}
+
+{% endblock %}

@@ -395,3 +395,22 @@ def revert_invoice_to_draft(request, pk):
     # Redirect back to the admin change page for this invoice
     redirect_url = reverse('admin:documents_invoice_change', args=[invoice.pk])
     return redirect(redirect_url)
+
+@login_required
+def order_list_view(request):
+    """
+    Display a list of all orders.
+    """
+    # Order by event_date (most recent first), then by creation date
+    orders = Order.objects.select_related('client').all().order_by('-event_date', '-created_at')
+    settings = Setting.get_solo()
+
+    context = {
+        'orders': orders,
+        'settings': settings,
+    }
+    return render(request, 'documents/order_list.html', context)
+
+
+
+
