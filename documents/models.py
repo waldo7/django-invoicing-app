@@ -172,6 +172,47 @@ class Quotation(models.Model):
         """
         # Uses the standard admin URL naming convention: admin:<app_label>_<model_name>_change
         return reverse('admin:documents_quotation_change', args=[self.pk])
+    
+    @transaction.atomic
+    def finalize(self):
+        """
+        Finalizes a DRAFT quotation:
+        - Sets issue_date if not already set.
+        - Calculates valid_until if not already set, based on issue_date and settings.
+        - Changes status to SENT.
+        Returns True if successful, False otherwise.
+        """
+        if self.status != self.Status.DRAFT:
+            print(f"Warning: Quotation {self.quotation_number} is not a DRAFT. Cannot finalize.")
+            return False
+
+        # Set issue_date if it's not already set
+        if not self.issue_date:
+            self.issue_date = timezone.now().date()
+
+        # Set valid_until if it's not already set AND issue_date is now available
+        if not self.valid_until and self.issue_date:
+            try:
+                Setting = apps.get_model('documents', 'Setting')
+                settings = Setting.get_solo()
+                validity_days = getattr(settings, 'default_validity_days', 0)
+                if validity_days > 0:
+                    self.valid_until = self.issue_date + timedelta(days=validity_days)
+            except Setting.DoesNotExist:
+                # Settings not configured, proceed without default valid_until
+                print("Warning: Settings object not found, cannot set default valid_until for Quotation.")
+                pass
+
+        self.status = self.Status.SENT
+        # Define which fields to update
+        fields_to_update = ['status']
+        if self.issue_date: # Only add to update_fields if it was potentially changed
+            fields_to_update.append('issue_date')
+        if self.valid_until: # Only add to update_fields if it was potentially changed
+            fields_to_update.append('valid_until')
+
+        self.save(update_fields=fields_to_update)
+        return True
 
     def __str__(self):
         return f"Quotation {self.quotation_number} ({self.client.name})"

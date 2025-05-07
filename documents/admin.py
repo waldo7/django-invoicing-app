@@ -1,15 +1,13 @@
-from django.contrib import admin
 from django.utils.html import format_html, mark_safe
+from solo.admin import SingletonModelAdmin # Import SoloAdmin
+from django.contrib import admin
 from django.urls import reverse
-from django.utils.html import format_html
-
 
 # Register your models here.
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, 
     Setting, Payment, Order, OrderItem
 )
-from solo.admin import SingletonModelAdmin # Import SoloAdmin
 
 
 @admin.register(Client)
@@ -55,15 +53,23 @@ class QuotationAdmin(admin.ModelAdmin):
     # Make auto-generated/timestamp fields read-only
     readonly_fields = (
         'quotation_number', 'version', 'created_at', 'updated_at', ''
-        'previous_version', 'revise_quotation_link', 
-        'preview_draft_pdf_link', 'view_final_pdf_link'
+        'previous_version', 
+        'finalize_quotation_link',
+        'revise_quotation_link', 
+        'preview_draft_pdf_link', 
+        'view_final_pdf_link'
         )
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
         (None, {
             'fields': ('client', 'title', 'status')
         }),
-        ('Actions', {'fields': ('revise_quotation_link', 'preview_draft_pdf_link', 'view_final_pdf_link',)}),
+        ('Actions', {'fields': (
+            'finalize_quotation_link',
+            'revise_quotation_link', 
+            'preview_draft_pdf_link', 
+            'view_final_pdf_link',
+            )}),
         # Section 2: Dates
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
@@ -99,13 +105,25 @@ class QuotationAdmin(admin.ModelAdmin):
              return "Error" # Handle potential calculation errors gracefully
     display_total.short_description = 'Total Amount' # Column header
 
+    def finalize_quotation_link(self, obj):
+        """Generate a 'Finalize' button link if status is Draft."""
+        if obj.pk and obj.status == Quotation.Status.DRAFT:
+            url = reverse('documents:quotation_finalize', args=[obj.pk])
+            return format_html('<a href="{}" class="button">Finalize Quotation</a>', url)
+        return mark_safe("<em>(Only Draft quotations can be finalized)</em>")
+    finalize_quotation_link.short_description = 'Finalize Action'
+
     def revise_quotation_link(self, obj):
         """
         Generate a 'Revise' button link for the admin change page.
         Only show if the quotation exists and is in a state that can be revised (e.g., Sent, Accepted).
         """
+        allowed_statuses = [
+            Quotation.Status.SENT, Quotation.Status.ACCEPTED, Quotation.Status.REJECTED
+        ]
+
         # Check if the object has been saved (has a PK) and its status allows revision
-        if obj.pk and obj.status in [Quotation.Status.SENT, Quotation.Status.ACCEPTED, Quotation.Status.REJECTED]:
+        if obj.pk and obj.status in allowed_statuses:
              # Generate the URL for our revise_quotation view using its name
              # Ensure 'documents' namespace is used if defined in core.urls include()
              url = reverse('documents:quotation_revise', args=[obj.pk])
@@ -129,7 +147,8 @@ class QuotationAdmin(admin.ModelAdmin):
             Quotation.Status.SENT,
             Quotation.Status.ACCEPTED,
             Quotation.Status.REJECTED,
-            # Exclude DRAFT, SUPERSEDED
+            Quotation.Status.SUPERSEDED,
+            # Exclude DRAFT
         ]
         if obj.pk and obj.status in final_statuses:
             url = reverse('documents:quotation_pdf', args=[obj.pk])

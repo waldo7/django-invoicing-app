@@ -294,6 +294,72 @@ class QuotationModelTests(TestCase):
         self.assertEqual(draft_quote.status, Quotation.Status.DRAFT)
         self.assertEqual(superseded_quote.status, Quotation.Status.SUPERSEDED)
 
+    def test_finalize_quotation(self):
+        """
+        Test the finalize() method on the Quotation model.
+        """
+        # --- Setup: Configure default validity days in Settings ---
+        settings = Setting.get_solo()
+        settings.default_validity_days = 10 # Use 10 days for this test
+        settings.save()
+
+        today = timezone.now().date()
+
+        # --- Scenario 1: Finalize a Draft with unset dates ---
+        draft_quote1 = Quotation.objects.create(
+            client=self.db_client,
+            status=Quotation.Status.DRAFT
+            # issue_date and valid_until are None
+        )
+        self.assertTrue(draft_quote1.finalize(), "Finalizing draft_quote1 should succeed")
+        draft_quote1.refresh_from_db()
+
+        self.assertEqual(draft_quote1.status, Quotation.Status.SENT)
+        self.assertEqual(draft_quote1.issue_date, today)
+        self.assertEqual(draft_quote1.valid_until, today + timedelta(days=10))
+
+        # --- Scenario 2: Finalize a Draft with issue_date pre-set, valid_until not set ---
+        preset_issue_date = date(2025, 6, 1)
+        draft_quote2 = Quotation.objects.create(
+            client=self.db_client,
+            status=Quotation.Status.DRAFT,
+            issue_date=preset_issue_date
+        )
+        self.assertTrue(draft_quote2.finalize(), "Finalizing draft_quote2 should succeed")
+        draft_quote2.refresh_from_db()
+
+        self.assertEqual(draft_quote2.status, Quotation.Status.SENT)
+        self.assertEqual(draft_quote2.issue_date, preset_issue_date) # Should keep preset date
+        self.assertEqual(draft_quote2.valid_until, preset_issue_date + timedelta(days=10))
+
+        # --- Scenario 3: Finalize a Draft with both dates pre-set ---
+        preset_issue_date_manual = date(2025, 6, 5)
+        preset_valid_until_manual = date(2025, 6, 20) # 15 days
+        draft_quote3 = Quotation.objects.create(
+            client=self.db_client,
+            status=Quotation.Status.DRAFT,
+            issue_date=preset_issue_date_manual,
+            valid_until=preset_valid_until_manual
+        )
+        self.assertTrue(draft_quote3.finalize(), "Finalizing draft_quote3 should succeed")
+        draft_quote3.refresh_from_db()
+
+        self.assertEqual(draft_quote3.status, Quotation.Status.SENT)
+        self.assertEqual(draft_quote3.issue_date, preset_issue_date_manual) # Should keep preset date
+        self.assertEqual(draft_quote3.valid_until, preset_valid_until_manual) # Should keep preset date
+
+        # --- Scenario 4: Try to finalize a non-Draft quote ---
+        sent_quote = Quotation.objects.create(
+            client=self.db_client,
+            status=Quotation.Status.SENT, # Already Sent
+            issue_date=today
+        )
+        original_issue_date = sent_quote.issue_date
+        self.assertFalse(sent_quote.finalize(), "Finalizing a Sent quote should fail (return False)")
+        sent_quote.refresh_from_db()
+        self.assertEqual(sent_quote.status, Quotation.Status.SENT) # Status should remain SENT
+        self.assertEqual(sent_quote.issue_date, original_issue_date) # Dates should not change
+
     
 class QuotationItemModelTests(TestCase):
 

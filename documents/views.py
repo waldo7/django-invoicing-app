@@ -1,13 +1,10 @@
-from django.http import HttpResponse # For sending the PDF response
-from django.template.loader import render_to_string # To render template to string
-
-from django.shortcuts import render
-from django.http import JsonResponse, Http404
-from django.shortcuts import get_object_or_404, redirect # Helpful shortcut
-from django.urls import reverse
-from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import get_object_or_404, redirect, render # Helpful shortcut
+from django.http import JsonResponse, Http404, HttpResponse
 from django.contrib.auth.decorators import login_required
+from django.template.loader import render_to_string # To render template to string
+from django.contrib import messages
+from django.urls import reverse
 
 # Import WeasyPrint (will cause error if not installed)
 try:
@@ -72,6 +69,33 @@ def revise_quotation(request, pk):
         admin_url = reverse('admin:documents_quotation_change', args=[original_quote.pk])
         return redirect(admin_url)
   
+
+@staff_member_required
+def finalize_quotation(request, pk):
+    """
+    View to handle finalizing a DRAFT Quotation.
+    Sets issue_date, calculates valid_until (if needed), and changes status to SENT.
+    """
+    quotation = get_object_or_404(Quotation, pk=pk)
+
+    # Call the model method to finalize
+    finalized_successfully = quotation.finalize() # This method now returns True/False
+
+    if finalized_successfully:
+        messages.success(
+            request,
+            f"Quotation {quotation.quotation_number} has been finalized. Status set to 'Sent', issue date set to {quotation.issue_date:%Y-%m-%d}."
+        )
+    else:
+        messages.warning(
+            request,
+            f"Quotation {quotation.quotation_number} could not be finalized (status was likely not 'Draft')."
+        )
+
+    # Redirect back to the admin change page for this quotation
+    redirect_url = reverse('admin:documents_quotation_change', args=[quotation.pk])
+    return redirect(redirect_url)
+
 
 @staff_member_required # Ensure only logged-in staff can access this
 def create_invoice_from_order(request, pk):
