@@ -725,6 +725,30 @@ class Invoice(models.Model):
         self.save(update_fields=fields_to_update)
         return True
     
+    @transaction.atomic
+    def revert_to_draft(self):
+        """
+        Reverts a 'Sent' Invoice back to 'Draft' status.
+        - Clears issue_date and due_date.
+        - Changes status to DRAFT.
+        Returns True if successful, False otherwise (e.g., if not in 'Sent' status).
+        """
+        # Only allow reverting from SENT. Reverting PAID or PARTIALLY_PAID
+        # would have implications for recorded payments and should likely
+        # be handled by credit notes or other accounting adjustments.
+        if self.status != self.Status.SENT:
+            print(f"Warning: Invoice {self.invoice_number} is not 'Sent'. Current status: {self.get_status_display()}. Cannot revert to draft.")
+            return False
+
+        self.status = self.Status.DRAFT
+        self.issue_date = None
+        self.due_date = None
+
+        # Define which fields to update
+        fields_to_update = ['status', 'issue_date', 'due_date']
+        self.save(update_fields=fields_to_update)
+        return True
+    
     class Meta:
         ordering = ['-issue_date', '-created_at']
 

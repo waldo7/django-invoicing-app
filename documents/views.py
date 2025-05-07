@@ -370,3 +370,28 @@ def invoice_detail_view(request, pk):
     }
     return render(request, 'documents/invoice_detail.html', context)
 
+
+@staff_member_required
+def revert_invoice_to_draft(request, pk):
+    """
+    View to handle reverting a 'Sent' Invoice back to 'Draft'.
+    """
+    invoice = get_object_or_404(Invoice, pk=pk)
+
+    # Call the model method to revert
+    reverted_successfully = invoice.revert_to_draft()
+
+    if reverted_successfully:
+        messages.success(
+            request,
+            f"Invoice {invoice.invoice_number} has been reverted to Draft. Issue date and due date have been cleared."
+        )
+    else:
+        messages.warning(
+            request,
+            f"Invoice {invoice.invoice_number} could not be reverted to draft (status was likely not 'Sent')."
+        )
+
+    # Redirect back to the admin change page for this invoice
+    redirect_url = reverse('admin:documents_invoice_change', args=[invoice.pk])
+    return redirect(redirect_url)

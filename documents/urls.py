@@ -16,5 +16,6 @@ urlpatterns = [
     path('invoice/<int:pk>/pdf/', views.generate_invoice_pdf, name='invoice_pdf'),
     path('invoice/<int:pk>/', views.invoice_detail_view, name='invoice_detail'),
     path('invoice/<int:pk>/finalize/', views.finalize_invoice, name='invoice_finalize'),
+    path('invoice/<int:pk>/revert-to-draft/', views.revert_invoice_to_draft, name='invoice_revert_to_draft'),
     path('invoices/', views.invoice_list_view, name='invoice_list'),
 ]

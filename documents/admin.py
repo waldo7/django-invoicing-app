@@ -195,13 +195,19 @@ class InvoiceAdmin(admin.ModelAdmin):
         'display_amount_paid', 'display_balance_due', 'display_grand_total_detail',
         'related_order',
         'finalize_invoice_link',
+        'revert_to_draft_link',
         'preview_draft_pdf_link', 
         'view_final_pdf_link',
         )
     fieldsets = (
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'related_order', 'title', 'status')}),
-        ('Actions', {'fields': ('finalize_invoice_link', 'preview_draft_pdf_link', 'view_final_pdf_link',)}),
+        ('Actions', {'fields': (
+            'finalize_invoice_link', 
+            'revert_to_draft_link',
+            'preview_draft_pdf_link', 
+            'view_final_pdf_link',
+            )}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
         ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
@@ -253,6 +259,14 @@ class InvoiceAdmin(admin.ModelAdmin):
             return format_html('<a href="{}" class="button">Finalize Invoice</a>', url)
         return mark_safe("<em>(Only Draft invoices can be finalized)</em>")
     finalize_invoice_link.short_description = 'Finalize Action'
+
+    def revert_to_draft_link(self, obj):
+        """Generate a 'Revert to Draft' button if status is Sent."""
+        if obj.pk and obj.status == Invoice.Status.SENT: # Only from SENT for now
+            url = reverse('documents:invoice_revert_to_draft', args=[obj.pk])
+            return format_html('<a href="{}" class="button">Revert to Draft</a>', url)
+        return mark_safe("<em>(Only Sent invoices can be reverted to draft)</em>")
+    revert_to_draft_link.short_description = 'Revert Action'
 
     def preview_draft_pdf_link(self, obj):
         if obj.pk and obj.status == Invoice.Status.DRAFT:

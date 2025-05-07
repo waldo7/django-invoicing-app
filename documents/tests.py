@@ -1,12 +1,12 @@
-from django.test import TestCase
-from decimal import Decimal
-from django.utils import timezone
-from datetime import date, timedelta
-from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.urls import reverse
-from django.test import Client as TestClient
+from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from django.test import Client as TestClient
+from datetime import date, timedelta
+from django.utils import timezone
+from django.test import TestCase
+from django.urls import reverse
+from decimal import Decimal
 
 
 # Create your tests here.
@@ -734,7 +734,67 @@ class InvoiceModelTests(TestCase):
         sent_invoice.refresh_from_db()
         self.assertEqual(sent_invoice.status, Invoice.Status.SENT) # Status should remain SENT
         self.assertEqual(sent_invoice.issue_date, original_issue_date) # Dates should not change
+
+    def test_revert_invoice_to_draft(self):
+        """
+        Test the revert_to_draft() method on the Invoice model.
+        """
+        # --- Setup: Create a SENT invoice ---
+        settings = Setting.get_solo()
+        settings.default_payment_terms_days = 14 # Use 14 days for this test
+        settings.save()
+
+        today = timezone.now().date() # Correct for today: May 7, 2025
+        sent_invoice = Invoice.objects.create(
+            client=self.db_client,
+            status=Invoice.Status.DRAFT, # Start as draft
+            # issue_date and due_date will be set by finalize()
+        )
+        # Finalize it to make it SENT and populate dates
+        self.assertTrue(sent_invoice.finalize(), "Finalizing invoice for revert test should succeed.")
+        sent_invoice.refresh_from_db()
+        self.assertEqual(sent_invoice.status, Invoice.Status.SENT)
+        self.assertIsNotNone(sent_invoice.issue_date)
+        self.assertIsNotNone(sent_invoice.due_date)
+        original_issue_date_for_sent = sent_invoice.issue_date # Store for later comparison
+        original_due_date_for_sent = sent_invoice.due_date
+
+        # --- Scenario 1: Revert a SENT invoice ---
+        revert_success = sent_invoice.revert_to_draft()
+        self.assertTrue(revert_success, "Reverting a SENT invoice to draft should succeed.")
+        sent_invoice.refresh_from_db()
+
+        self.assertEqual(sent_invoice.status, Invoice.Status.DRAFT)
+        self.assertIsNone(sent_invoice.issue_date, "Issue date should be cleared when reverted to draft.")
+        self.assertIsNone(sent_invoice.due_date, "Due date should be cleared when reverted to draft.")
+
+        # --- Scenario 2: Attempt to revert a DRAFT invoice (should fail) ---
+        # The invoice is already DRAFT from the previous step
+        self.assertFalse(sent_invoice.revert_to_draft(), "Reverting an already DRAFT invoice should fail (return False).")
+        self.assertEqual(sent_invoice.status, Invoice.Status.DRAFT) # Should remain DRAFT
+
+        # --- Scenario 3: Attempt to revert other non-SENT statuses (should fail) ---
+        statuses_to_test = [
+            Invoice.Status.PAID,
+            Invoice.Status.PARTIALLY_PAID,
+            Invoice.Status.CANCELLED
+        ]
+        for invalid_status in statuses_to_test:
+            # Create a new invoice for each status test, setting dates as they would be set if it reached that state
+            other_invoice = Invoice.objects.create(
+                client=self.db_client,
+                status=invalid_status,
+                issue_date=today, # Give it some dates
+                due_date=today + timedelta(days=settings.default_payment_terms_days)
+            )
+            self.assertFalse(other_invoice.revert_to_draft(), f"Reverting a {invalid_status} invoice should fail.")
+            other_invoice.refresh_from_db()
+            self.assertEqual(other_invoice.status, invalid_status, f"Status for {invalid_status} invoice should not change.")
+            # Also check that dates weren't cleared
+            self.assertIsNotNone(other_invoice.issue_date)
+            self.assertIsNotNone(other_invoice.due_date)
     
+
 class InvoiceItemModelTests(TestCase):
 
     @classmethod
