@@ -444,3 +444,28 @@ def client_list_view(request):
         'settings': settings, # Though not strictly needed for client list yet
     }
     return render(request, 'documents/client_list.html', context)
+
+
+@login_required
+def client_detail_view(request, pk):
+    """
+    Display the details of a single client and their related documents.
+    """
+    client = get_object_or_404(Client, pk=pk)
+    settings = Setting.get_solo()
+
+    # Fetch related documents
+    # Using prefetch_related for M2M or reverse FKs if needed,
+    # but direct related manager access is fine for now given separate queries are likely
+    quotations = client.quotations.all().order_by('-issue_date', '-created_at')[:10] # Get latest 10
+    orders = client.orders.all().order_by('-event_date', '-created_at')[:10]
+    invoices = client.invoices.all().order_by('-issue_date', '-created_at')[:10]
+
+    context = {
+        'client': client,
+        'settings': settings,
+        'quotations': quotations,
+        'orders': orders,
+        'invoices': invoices,
+    }
+    return render(request, 'documents/client_detail.html', context)

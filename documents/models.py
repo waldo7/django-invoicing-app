@@ -23,6 +23,12 @@ class Client(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def get_admin_url(self):
+        """
+        Returns the URL to the admin change page for this client instance.
+        """
+        return reverse('admin:documents_client_change', args=[self.pk])
+
     def __str__(self):
         """String representation of the Client object"""
         return self.name

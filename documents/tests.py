@@ -1599,6 +1599,55 @@ class DocumentViewTests(TestCase):
         # Check that the list of clients in context contains our client object
         self.assertIn(self.client_obj, response.context['clients'])
 
+    def test_client_detail_view_logged_out_redirect(self):
+        """Test accessing client detail view when logged out redirects to login."""
+        # Use client_obj created in setUpTestData
+        detail_url = reverse('documents:client_detail', args=[self.client_obj.pk])
+        response = self.client.get(detail_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={detail_url}")
 
+    def test_client_detail_view_logged_in_success(self):
+        """Test the client detail view loads correctly for a logged-in user."""
+        detail_url = reverse('documents:client_detail', args=[self.client_obj.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/client_detail.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, f"Client: {self.client_obj.name}") # Heading/Title check
+        self.assertIn('client', response.context) # Context variable
+        self.assertEqual(response.context['client'], self.client_obj) # Correct client object
+        self.assertIn('quotations', response.context) # Related documents
+        self.assertIn('orders', response.context)
+        self.assertIn('invoices', response.context)
+
+        # Check if some data from the client and related documents are present
+        self.assertContains(response, self.client_obj.email)
+        # quote1 was linked to client_obj in setUpTestData
+        if hasattr(self, 'quote1') and self.quote1.quotation_number:
+             self.assertContains(response, self.quote1.quotation_number)
+        # inv1 was linked to client_obj in setUpTestData
+        if hasattr(self, 'inv1') and self.inv1.invoice_number:
+            self.assertContains(response, self.inv1.invoice_number)
+        # order1 was linked to client_obj in setUpTestData
+        if hasattr(self, 'order1') and self.order1.order_number:
+            self.assertContains(response, self.order1.order_number)
+
+
+    def test_client_detail_view_not_found(self):
+        """Test accessing detail view for a non-existent client returns 404."""
+        # Calculate a PK that is very unlikely to exist
+        invalid_pk = self.client_obj.pk + 1000
+        detail_url = reverse('documents:client_detail', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 404) # Not Found status
 
 

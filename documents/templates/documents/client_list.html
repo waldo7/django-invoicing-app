@@ -29,7 +29,7 @@
             <tr>
               <td>
                  {# Link to admin detail page for now - will update to frontend detail later #}
-                 <a href="{% url 'admin:documents_client_change' client.pk %}">{{ client.name }}</a>
+                 <a href="{% url 'documents:client_detail' client.pk %}">{{ client.name }}</a>
               </td>
               <td>{{ client.email|default:"-" }}</td>
               <td>{{ client.phone|default:"-" }}</td>

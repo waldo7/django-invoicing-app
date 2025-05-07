@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Client: {{ client.name }}{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Client: {{ client.name }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{{ client.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-6">
+      <h4>Contact Information</h4>
+      <p>
+        {% if client.email %}<strong>Email:</strong> {{ client.email }}<br>{% endif %}
+        {% if client.phone %}<strong>Phone:</strong> {{ client.phone }}<br>{% endif %}
+        {% if client.address %}<strong>Address:</strong><br>{{ client.address|linebreaksbr }}{% endif %}
+      </p>
+    </div>
+    {# Add other client-specific details here if any in the future #}
+  </div>
+
+  <hr class="my-4">
+
+  {# Related Quotations #}
+  <h4 class="mt-4">Recent Quotations</h4>
+  {% if quotations %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead>
+          <tr>
+            <th>Number</th><th>Title</th><th>Status</th><th>Issued</th><th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for quote in quotations %}
+          <tr>
+            <td><a href="{% url 'documents:quotation_detail' quote.pk %}">{{ quote.quotation_number|default:"Draft" }}</a></td>
+            <td>{{ quote.title|truncatewords:5|default:"-" }}</td>
+            <td><span class="badge bg-secondary">{{ quote.get_status_display }}</span></td>
+            <td>{{ quote.issue_date|date:"Y-m-d"|default:"N/A" }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ quote.grand_total|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No quotations found for this client.</p>
+  {% endif %}
+
+  {# Related Orders #}
+  <h4 class="mt-4">Recent Orders</h4>
+  {% if orders %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead>
+          <tr>
+            <th>Number</th><th>Title</th><th>Status</th><th>Event Date</th><th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+          <tr>
+            <td><a href="{% url 'documents:order_detail' order.pk %}">{{ order.order_number|default:"Draft" }}</a></td>
+            <td>{{ order.title|truncatewords:5|default:"-" }}</td>
+            <td><span class="badge bg-warning text-dark">{{ order.get_status_display }}</span></td>
+            <td>{{ order.event_date|date:"Y-m-d"|default:"N/A" }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ order.grand_total|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No orders found for this client.</p>
+  {% endif %}
+
+  {# Related Invoices #}
+  <h4 class="mt-4">Recent Invoices</h4>
+  {% if invoices %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover">
+        <thead>
+          <tr>
+            <th>Number</th><th>Title</th><th>Status</th><th>Issued</th><th class="text-end">Total</th><th class="text-end">Balance Due</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for invoice in invoices %}
+          <tr>
+            <td><a href="{% url 'documents:invoice_detail' invoice.pk %}">{{ invoice.invoice_number|default:"Draft" }}</a></td>
+            <td>{{ invoice.title|truncatewords:5|default:"-" }}</td>
+            <td><span class="badge bg-info text-dark">{{ invoice.get_status_display }}</span></td>
+            <td>{{ invoice.issue_date|date:"Y-m-d"|default:"N/A" }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ invoice.grand_total|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ invoice.balance_due|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No invoices found for this client.</p>
+  {% endif %}
+
+{% endblock %}
