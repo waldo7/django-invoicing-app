@@ -55,6 +55,7 @@ class QuotationAdmin(admin.ModelAdmin):
         'quotation_number', 'version', 'created_at', 'updated_at', ''
         'previous_version', 
         'finalize_quotation_link',
+        'revert_to_draft_link',
         'revise_quotation_link', 
         'preview_draft_pdf_link', 
         'view_final_pdf_link'
@@ -66,6 +67,7 @@ class QuotationAdmin(admin.ModelAdmin):
         }),
         ('Actions', {'fields': (
             'finalize_quotation_link',
+            'revert_to_draft_link',
             'revise_quotation_link', 
             'preview_draft_pdf_link', 
             'view_final_pdf_link',
@@ -113,6 +115,14 @@ class QuotationAdmin(admin.ModelAdmin):
             return format_html('<a href="{}" class="button">Finalize Quotation</a>', url)
         return mark_safe("<em>(Only Draft quotations can be finalized)</em>")
     finalize_quotation_link.short_description = 'Finalize Action'
+
+    def revert_to_draft_link(self, obj):
+        """Generate a 'Revert to Draft' button if status is Sent."""
+        if obj.pk and obj.status == Quotation.Status.SENT:
+            url = reverse('documents:quotation_revert_to_draft', args=[obj.pk])
+            return format_html('<a href="{}" class="button">Revert to Draft</a>', url)
+        return mark_safe("<em>(Only Sent quotations can be reverted to draft)</em>")
+    revert_to_draft_link.short_description = 'Revert Action'
 
     def revise_quotation_link(self, obj):
         """

@@ -213,6 +213,30 @@ class Quotation(models.Model):
 
         self.save(update_fields=fields_to_update)
         return True
+    
+    @transaction.atomic
+    def revert_to_draft(self):
+        """
+        Reverts a 'Sent' Quotation back to 'Draft' status.
+        - Clears issue_date and valid_until.
+        - Changes status to DRAFT.
+        Returns True if successful, False otherwise (e.g., if not in 'Sent' status).
+        """
+        # For now, let's only allow reverting from SENT.
+        # We could expand this later to allow reverting from ACCEPTED/REJECTED
+        # if the business logic requires it, but that might have other implications.
+        if self.status != self.Status.SENT:
+            print(f"Warning: Quotation {self.quotation_number} is not 'Sent'. Current status: {self.get_status_display()}. Cannot revert to draft.")
+            return False
+
+        self.status = self.Status.DRAFT
+        self.issue_date = None
+        self.valid_until = None
+
+        # Define which fields to update
+        fields_to_update = ['status', 'issue_date', 'valid_until']
+        self.save(update_fields=fields_to_update)
+        return True
 
     def __str__(self):
         return f"Quotation {self.quotation_number} ({self.client.name})"

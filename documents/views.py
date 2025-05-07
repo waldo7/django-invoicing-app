@@ -98,6 +98,32 @@ def finalize_quotation(request, pk):
 
 
 @staff_member_required
+def revert_quotation_to_draft(request, pk):
+    """
+    View to handle reverting a 'Sent' Quotation back to 'Draft'.
+    """
+    quotation = get_object_or_404(Quotation, pk=pk)
+
+    # Call the model method to revert
+    reverted_successfully = quotation.revert_to_draft()
+
+    if reverted_successfully:
+        messages.success(
+            request,
+            f"Quotation {quotation.quotation_number} has been reverted to Draft. Issue date and valid until date have been cleared."
+        )
+    else:
+        messages.warning(
+            request,
+            f"Quotation {quotation.quotation_number} could not be reverted to draft (status was likely not 'Sent')."
+        )
+
+    # Redirect back to the admin change page for this quotation
+    redirect_url = reverse('admin:documents_quotation_change', args=[quotation.pk])
+    return redirect(redirect_url)
+
+
+@staff_member_required
 def finalize_invoice(request, pk):
     """
     View to handle finalizing a DRAFT Invoice.

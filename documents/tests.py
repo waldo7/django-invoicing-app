@@ -360,6 +360,59 @@ class QuotationModelTests(TestCase):
         self.assertEqual(sent_quote.status, Quotation.Status.SENT) # Status should remain SENT
         self.assertEqual(sent_quote.issue_date, original_issue_date) # Dates should not change
 
+    def test_revert_quotation_to_draft(self):
+        """
+        Test the revert_to_draft() method on the Quotation model.
+        """
+        # --- Setup: Create a SENT quote ---
+        settings = Setting.get_solo() # Ensure settings are loaded if needed by finalize
+        settings.default_validity_days = 10
+        settings.save()
+
+        issue_date_for_sent_quote = date(2025, 5, 7) # Use a fixed date for testing
+        sent_quote = Quotation.objects.create(
+            client=self.db_client,
+            status=Quotation.Status.DRAFT, # Start as draft
+            issue_date=None, # Explicitly None for finalize to set
+            valid_until=None # Explicitly None for finalize to set
+        )
+        # Finalize it to make it SENT and populate dates
+        self.assertTrue(sent_quote.finalize(), "Finalizing quote for revert test should succeed.")
+        sent_quote.refresh_from_db()
+        self.assertEqual(sent_quote.status, Quotation.Status.SENT)
+        self.assertIsNotNone(sent_quote.issue_date)
+        self.assertIsNotNone(sent_quote.valid_until)
+
+        # --- Scenario 1: Revert a SENT quote ---
+        revert_success = sent_quote.revert_to_draft()
+        self.assertTrue(revert_success, "Reverting a SENT quote to draft should succeed.")
+        sent_quote.refresh_from_db()
+
+        self.assertEqual(sent_quote.status, Quotation.Status.DRAFT)
+        self.assertIsNone(sent_quote.issue_date, "Issue date should be cleared when reverted to draft.")
+        self.assertIsNone(sent_quote.valid_until, "Valid until date should be cleared when reverted to draft.")
+
+        # --- Scenario 2: Attempt to revert a DRAFT quote (should fail) ---
+        # The quote is already DRAFT from the previous step
+        self.assertFalse(sent_quote.revert_to_draft(), "Reverting an already DRAFT quote should fail (return False).")
+        self.assertEqual(sent_quote.status, Quotation.Status.DRAFT) # Should remain DRAFT
+
+        # --- Scenario 3: Attempt to revert other non-SENT statuses (should fail) ---
+        statuses_to_test = [
+            Quotation.Status.ACCEPTED,
+            Quotation.Status.REJECTED,
+            Quotation.Status.SUPERSEDED
+        ]
+        for invalid_status in statuses_to_test:
+            other_quote = Quotation.objects.create(
+                client=self.db_client,
+                status=invalid_status,
+                issue_date=date(2025, 1, 1) # Give it some dates
+            )
+            self.assertFalse(other_quote.revert_to_draft(), f"Reverting a {invalid_status} quote should fail.")
+            other_quote.refresh_from_db()
+            self.assertEqual(other_quote.status, invalid_status, f"Status for {invalid_status} quote should not change.")
+
     
 class QuotationItemModelTests(TestCase):
 
