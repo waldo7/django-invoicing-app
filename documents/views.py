@@ -4,6 +4,7 @@ from django.http import JsonResponse, Http404, HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.template.loader import render_to_string # To render template to string
 from django.contrib import messages
+from django.db import transaction
 from django.urls import reverse
 
 # Import WeasyPrint (will cause error if not installed)
@@ -17,6 +18,8 @@ except ImportError:
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
 from .models import Order, MenuItem, Quotation, Setting, Invoice, Client
+from .forms import QuotationForm, QuotationItemFormSet
+
 
 # Create your views here.
 def get_menu_item_details(request, pk):
@@ -469,3 +472,53 @@ def client_detail_view(request, pk):
         'invoices': invoices,
     }
     return render(request, 'documents/client_detail.html', context)
+
+
+@login_required
+@transaction.atomic # Ensures all database operations are run together or rolled back on error
+def quotation_create_view(request):
+    """
+    View to handle creating a new Quotation with its line items.
+    """
+    page_title = "Create New Quotation"
+
+    if request.method == 'POST':
+        # If data is being submitted
+        form = QuotationForm(request.POST)
+        # 'prefix="items"' must match the prefix used when rendering the formset in the template
+        item_formset = QuotationItemFormSet(request.POST, prefix='items')
+
+        if form.is_valid() and item_formset.is_valid():
+            # Save the main Quotation form (but don't commit to DB yet if further processing needed)
+            quotation = form.save(commit=False)
+            # Set any fields not on the form automatically
+            # quotation.created_by = request.user # Example if you had this field
+            quotation.status = Quotation.Status.DRAFT # New quotes start as Draft
+            quotation.version = 1 # First version
+            # issue_date and valid_until are intentionally left blank for drafts
+            quotation.save() # Save the Quotation header (this will trigger auto-numbering)
+
+            # Now link the item_formset to the saved quotation instance
+            item_formset.instance = quotation
+            item_formset.save() # Save the line items
+
+            messages.success(request, f"Quotation {quotation.quotation_number} created successfully as Draft.")
+            # Redirect to the detail page of the newly created quotation
+            return redirect(reverse('documents:quotation_detail', args=[quotation.pk]))
+        else:
+            # If forms are not valid, display errors
+            messages.error(request, "Please correct the errors below.")
+    else:
+        # If it's a GET request, display a blank form
+        form = QuotationForm()
+        item_formset = QuotationItemFormSet(prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+    }
+    return render(request, 'documents/quotation_form.html', context)
+
+
+

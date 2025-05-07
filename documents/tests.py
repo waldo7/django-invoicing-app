@@ -1,19 +1,22 @@
+from django.test import TestCase, Client as TestClient
 from django.core.validators import MinValueValidator
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
-from django.test import Client as TestClient
 from datetime import date, timedelta
 from django.utils import timezone
-from django.test import TestCase
 from django.urls import reverse
 from decimal import Decimal
+from django import forms
 
 
 # Create your tests here.
+from .forms import QuotationForm, QuotationItemFormSet
+
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
     Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem 
 )
+
 
 User = get_user_model()
 
@@ -1368,6 +1371,9 @@ class DocumentViewTests(TestCase):
         # Total for order1 = 220.00 (assuming no tax/discount in this specific setup)
         # --- End Add items ---
 
+        cls.menu_item1 = MenuItem.objects.create(name="General Test Item A", unit_price=Decimal("25.00"), unit="ITEM")
+        cls.menu_item2 = MenuItem.objects.create(name="General Test Item B", unit_price=Decimal("70.00"), unit="ITEM")
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1651,3 +1657,143 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.status_code, 404) # Not Found status
 
 
+    def test_quotation_create_view_get_logged_out_redirect(self):
+        """Test GET to create view when logged out redirects to login."""
+        create_url = reverse('documents:quotation_create')
+        response = self.client.get(create_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={create_url}")
+
+    def test_quotation_create_view_get_logged_in(self):
+        """Test GET to create view when logged in shows the form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        response = self.client.get(reverse('documents:quotation_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/quotation_form.html')
+        self.assertIsInstance(response.context['form'], QuotationForm)
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet) # Check for formset type
+        self.assertContains(response, "Create New Quotation")
+
+    def test_quotation_create_view_post_valid_data(self):
+        """Test POST to create view with valid data creates quotation and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:quotation_create')
+
+        # Prepare POST data
+        # Main form data
+        quotation_data = {
+            'client': self.client_obj.pk,
+            'title': 'New Test Quotation via Form',
+            'issue_date': '', # Optional for draft
+            'valid_until': '', # Optional for draft
+            'discount_type': DiscountType.NONE.value,
+            'discount_value': '0.00',
+            'terms_and_conditions': 'Test terms.',
+            'notes': 'Test notes.',
+        }
+        # Formset data (prefix 'items' as used in view and template)
+        # Management form data is crucial for formsets
+        item_formset_data = {
+            'items-TOTAL_FORMS': '2', # We are submitting two item forms
+            'items-INITIAL_FORMS': '0', # No initial forms (it's a create view)
+            'items-MIN_NUM_FORMS': '0', # Or whatever your min_num is
+            'items-MAX_NUM_FORMS': '1000', # A high number
+
+            # Data for item 0
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-description': 'Description for item A',
+            'items-0-quantity': '2.00',
+            'items-0-unit_price': '25.00',
+            'items-0-grouping_label': 'Group X',
+            # 'items-0-DELETE': '', # Not deleting
+
+            # Data for item 1
+            'items-1-menu_item': self.menu_item2.pk,
+            'items-1-description': 'Description for item B',
+            'items-1-quantity': '1.00',
+            'items-1-unit_price': '70.00',
+            'items-1-grouping_label': 'Group Y',
+            # 'items-1-DELETE': '', # Not deleting
+        }
+        post_data = {**quotation_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+
+        error_message_detail = ""
+        if response.status_code != 302: # If we didn't get the expected redirect
+            if response.context:
+                form_errors = response.context.get('form').errors if hasattr(response.context.get('form'), 'errors') else 'N/A'
+                item_formset_errors = response.context.get('item_formset').errors if hasattr(response.context.get('item_formset'), 'errors') else 'N/A'
+                error_message_detail = f" Form errors: {form_errors}, Item formset errors: {item_formset_errors}"
+            else:
+                error_message_detail = " No context available in response."
+
+        # Should redirect to detail view of the new quotation
+        self.assertEqual(
+            response.status_code,
+            302,
+            f"Expected redirect (302), got {response.status_code}.{error_message_detail}"
+        )
+        
+        # Verify quotation created
+        new_quote = Quotation.objects.last() # Get the most recently created quotation
+        self.assertIsNotNone(new_quote)
+        self.assertEqual(new_quote.title, 'New Test Quotation via Form')
+        self.assertEqual(new_quote.client, self.client_obj)
+        self.assertEqual(new_quote.status, Quotation.Status.DRAFT)
+        self.assertEqual(new_quote.version, 1)
+        self.assertEqual(new_quote.items.count(), 2) # Check two items were created
+
+        # Check details of one item
+        item_a = new_quote.items.get(menu_item=self.menu_item1)
+        self.assertEqual(item_a.quantity, Decimal('2.00'))
+        self.assertEqual(item_a.unit_price, Decimal('25.00'))
+
+    def test_quotation_create_view_post_invalid_main_form(self):
+        """Test POST with invalid main form data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:quotation_create')
+        # Invalid: Missing client
+        quotation_data = {
+            'title': 'Invalid Quotation',
+        }
+        item_formset_data = { # Need valid management form at least
+            'items-TOTAL_FORMS': '0',
+            'items-INITIAL_FORMS': '0',
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+        }
+        post_data = {**quotation_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200) # Should re-render form
+        self.assertTemplateUsed(response, 'documents/quotation_form.html')
+        self.assertIn('form', response.context)
+        self.assertTrue(response.context['form'].errors) # Check for errors
+        self.assertContains(response, "Please correct the errors below.")
+
+    def test_quotation_create_view_post_invalid_item_formset(self):
+        """Test POST with invalid item formset data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:quotation_create')
+        quotation_data = {
+            'client': self.client_obj.pk,
+            'title': 'Quote with Invalid Item',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '1',
+            'items-INITIAL_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-quantity': '', # Invalid: missing quantity
+            'items-0-unit_price': '10.00',
+        }
+        post_data = {**quotation_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/quotation_form.html')
+        self.assertIn('item_formset', response.context)
+        self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())
+        self.assertContains(response, "Please correct the errors below.")
