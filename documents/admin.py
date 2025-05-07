@@ -98,6 +98,7 @@ class QuotationAdmin(admin.ModelAdmin):
     def display_total(self, obj):
          # Call the 'total' property from the Quotation model
          # Format it nicely for display (optional, but good)
+         if not obj.pk: return "-"
          try:
              # Format as currency, you might need locale settings or a formatting library later
              return f"RM {obj.grand_total:,.2f}"
@@ -183,12 +184,14 @@ class InvoiceAdmin(admin.ModelAdmin):
         'invoice_number', 'created_at', 'updated_at', 
         'display_amount_paid', 'display_balance_due', 'display_grand_total_detail',
         'related_order',
-        'preview_draft_pdf_link', 'view_final_pdf_link',
+        'finalize_invoice_link',
+        'preview_draft_pdf_link', 
+        'view_final_pdf_link',
         )
     fieldsets = (
         # Group fields logically in the edit view
         (None, {'fields': ('client', 'related_quotation', 'related_order', 'title', 'status')}),
-        ('Actions', {'fields': ('preview_draft_pdf_link', 'view_final_pdf_link',)}),
+        ('Actions', {'fields': ('finalize_invoice_link', 'preview_draft_pdf_link', 'view_final_pdf_link',)}),
         ('Dates', {'fields': ('issue_date', 'due_date')}),
         ('Payment Status', {'fields': ('display_grand_total_detail', 'display_amount_paid', 'display_balance_due')}),
         # --- Add Discount Section ---
@@ -206,6 +209,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     
     def display_grand_total(self, obj): # Renamed for list view
          """Formats grand_total for list display."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.grand_total:,.2f}"
          except Exception: return "Error"
     display_grand_total.short_description = 'Total Amount'
@@ -213,21 +217,32 @@ class InvoiceAdmin(admin.ModelAdmin):
     # Need separate methods for readonly_fields as they often don't directly accept properties
     def display_grand_total_detail(self, obj):
          """Formats grand_total for detail view (readonly_fields)."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.grand_total:,.2f}"
          except Exception: return "Error"
     display_grand_total_detail.short_description = 'Grand Total' # Header in fieldset
 
     def display_amount_paid(self, obj):
          """Formats amount_paid for detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.amount_paid:,.2f}"
          except Exception: return "Error"
     display_amount_paid.short_description = 'Amount Paid'
 
     def display_balance_due(self, obj):
          """Formats balance_due for list and detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.balance_due:,.2f}"
          except Exception: return "Error"
     display_balance_due.short_description = 'Balance Due'
+
+    def finalize_invoice_link(self, obj):
+        """Generate a 'Finalize' button link if status is Draft."""
+        if obj.pk and obj.status == Invoice.Status.DRAFT:
+            url = reverse('documents:invoice_finalize', args=[obj.pk])
+            return format_html('<a href="{}" class="button">Finalize Invoice</a>', url)
+        return mark_safe("<em>(Only Draft invoices can be finalized)</em>")
+    finalize_invoice_link.short_description = 'Finalize Action'
 
     def preview_draft_pdf_link(self, obj):
         if obj.pk and obj.status == Invoice.Status.DRAFT:
@@ -369,30 +384,35 @@ class OrderAdmin(admin.ModelAdmin):
 
     def display_grand_total(self, obj):
          """Formats grand_total for list display."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.grand_total:,.2f}"
          except Exception: return "Error"
     display_grand_total.short_description = 'Total Amount' # Header for list view
 
     def display_grand_total_detail(self, obj):
          """Formats grand_total for detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.grand_total:,.2f}"
          except Exception: return "Error"
     display_grand_total_detail.short_description = 'Grand Total (Calc.)' # Header for detail view
 
     def display_subtotal(self, obj):
          """Formats subtotal for detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.subtotal:,.2f}"
          except Exception: return "Error"
     display_subtotal.short_description = 'Subtotal (Calc.)'
 
     def display_discount_amount(self, obj):
          """Formats discount_amount for detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.discount_amount:,.2f}"
          except Exception: return "Error"
     display_discount_amount.short_description = 'Discount Amount (Calc.)'
 
     def display_tax_amount(self, obj):
          """Formats tax_amount for detail view."""
+         if not obj.pk: return "-"
          try: return f"RM {obj.tax_amount:,.2f}"
          except Exception: return "Error"
     display_tax_amount.short_description = 'Tax Amount (Calc.)'

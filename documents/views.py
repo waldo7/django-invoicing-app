@@ -97,6 +97,35 @@ def finalize_quotation(request, pk):
     return redirect(redirect_url)
 
 
+@staff_member_required
+def finalize_invoice(request, pk):
+    """
+    View to handle finalizing a DRAFT Invoice.
+    Sets issue_date, calculates due_date (if needed), and changes status to SENT.
+    """
+    invoice = get_object_or_404(Invoice, pk=pk)
+
+    # Call the model method to finalize
+    finalized_successfully = invoice.finalize() # This method returns True/False
+
+    if finalized_successfully:
+        # Use f-string for better readability if issue_date might be None (though finalize sets it)
+        issue_date_str = f"{invoice.issue_date:%Y-%m-%d}" if invoice.issue_date else "not set"
+        messages.success(
+            request,
+            f"Invoice {invoice.invoice_number} has been finalized. Status set to 'Sent', issue date set to {issue_date_str}."
+        )
+    else:
+        messages.warning(
+            request,
+            f"Invoice {invoice.invoice_number} could not be finalized (status was likely not 'Draft')."
+        )
+
+    # Redirect back to the admin change page for this invoice
+    redirect_url = reverse('admin:documents_invoice_change', args=[invoice.pk])
+    return redirect(redirect_url)
+
+
 @staff_member_required # Ensure only logged-in staff can access this
 def create_invoice_from_order(request, pk):
     """

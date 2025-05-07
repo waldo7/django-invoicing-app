@@ -616,6 +616,71 @@ class InvoiceModelTests(TestCase):
         cancelled_inv.refresh_from_db()
         self.assertEqual(cancelled_inv.status, Invoice.Status.CANCELLED, "Cancelled invoice status should not change on payment")
 
+    def test_finalize_invoice(self):
+        """
+        Test the finalize() method on the Invoice model.
+        """
+        # --- Setup: Configure default payment terms in Settings ---
+        settings = Setting.get_solo()
+        settings.default_payment_terms_days = 14 # Use 14 days for this test
+        settings.save()
+
+        today = timezone.now().date()
+
+        # --- Scenario 1: Finalize a Draft with unset dates ---
+        draft_invoice1 = Invoice.objects.create(
+            client=self.db_client, # Use client from setUpTestData
+            status=Invoice.Status.DRAFT
+            # issue_date and due_date are None
+        )
+        self.assertTrue(draft_invoice1.finalize(), "Finalizing draft_invoice1 should succeed")
+        draft_invoice1.refresh_from_db()
+
+        self.assertEqual(draft_invoice1.status, Invoice.Status.SENT)
+        self.assertEqual(draft_invoice1.issue_date, today)
+        self.assertEqual(draft_invoice1.due_date, today + timedelta(days=14))
+
+        # --- Scenario 2: Finalize a Draft with issue_date pre-set, due_date not set ---
+        preset_issue_date = date(2025, 8, 1)
+        draft_invoice2 = Invoice.objects.create(
+            client=self.db_client,
+            status=Invoice.Status.DRAFT,
+            issue_date=preset_issue_date
+        )
+        self.assertTrue(draft_invoice2.finalize(), "Finalizing draft_invoice2 should succeed")
+        draft_invoice2.refresh_from_db()
+
+        self.assertEqual(draft_invoice2.status, Invoice.Status.SENT)
+        self.assertEqual(draft_invoice2.issue_date, preset_issue_date) # Should keep preset date
+        self.assertEqual(draft_invoice2.due_date, preset_issue_date + timedelta(days=14))
+
+        # --- Scenario 3: Finalize a Draft with both dates pre-set ---
+        preset_issue_date_manual = date(2025, 8, 5)
+        preset_due_date_manual = date(2025, 8, 25) # 20 days
+        draft_invoice3 = Invoice.objects.create(
+            client=self.db_client,
+            status=Invoice.Status.DRAFT,
+            issue_date=preset_issue_date_manual,
+            due_date=preset_due_date_manual
+        )
+        self.assertTrue(draft_invoice3.finalize(), "Finalizing draft_invoice3 should succeed")
+        draft_invoice3.refresh_from_db()
+
+        self.assertEqual(draft_invoice3.status, Invoice.Status.SENT)
+        self.assertEqual(draft_invoice3.issue_date, preset_issue_date_manual) # Should keep preset date
+        self.assertEqual(draft_invoice3.due_date, preset_due_date_manual) # Should keep preset date
+
+        # --- Scenario 4: Try to finalize a non-Draft invoice ---
+        sent_invoice = Invoice.objects.create(
+            client=self.db_client,
+            status=Invoice.Status.SENT, # Already Sent
+            issue_date=today
+        )
+        original_issue_date = sent_invoice.issue_date
+        self.assertFalse(sent_invoice.finalize(), "Finalizing a Sent invoice should fail (return False)")
+        sent_invoice.refresh_from_db()
+        self.assertEqual(sent_invoice.status, Invoice.Status.SENT) # Status should remain SENT
+        self.assertEqual(sent_invoice.issue_date, original_issue_date) # Dates should not change
     
 class InvoiceItemModelTests(TestCase):
 

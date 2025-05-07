@@ -660,6 +660,46 @@ class Invoice(models.Model):
         balance = self.grand_total - self.amount_paid
         return balance.quantize(Decimal("0.01"))
 
+    @transaction.atomic
+    def finalize(self):
+        """
+        Finalizes a DRAFT invoice:
+        - Sets issue_date if not already set.
+        - Calculates due_date if not already set, based on issue_date and settings.
+        - Changes status to SENT.
+        Returns True if successful, False otherwise.
+        """
+        if self.status != self.Status.DRAFT:
+            print(f"Warning: Invoice {self.invoice_number} is not a DRAFT. Cannot finalize.")
+            return False
+
+        # Set issue_date if it's not already set
+        if not self.issue_date:
+            self.issue_date = timezone.now().date()
+
+        # Set due_date if it's not already set AND issue_date is now available
+        if not self.due_date and self.issue_date:
+            try:
+                Setting = apps.get_model('documents', 'Setting')
+                settings = Setting.get_solo()
+                # Use the new setting for payment terms
+                payment_terms_days = getattr(settings, 'default_payment_terms_days', 0)
+                if payment_terms_days > 0:
+                    self.due_date = self.issue_date + timedelta(days=payment_terms_days)
+            except Setting.DoesNotExist:
+                print("Warning: Settings object not found, cannot set default due_date for Invoice.")
+                pass # Proceed without default due_date
+
+        self.status = self.Status.SENT
+        # Define which fields to update
+        fields_to_update = ['status']
+        if self.issue_date: # Only add to update_fields if it was potentially changed/set
+            fields_to_update.append('issue_date')
+        if self.due_date:   # Only add to update_fields if it was potentially changed/set
+            fields_to_update.append('due_date')
+
+        self.save(update_fields=fields_to_update)
+        return True
     
     class Meta:
         ordering = ['-issue_date', '-created_at']
