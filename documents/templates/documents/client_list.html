@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Clients{% endblock %}
+
+{% block content %}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Clients</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{% url 'admin:documents_client_add' %}" class="btn btn-sm btn-outline-secondary">Add Client</a>
+      </div>
+    </div>
+  </div>
+
+  {% if clients %}
+    <div class="table-responsive">
+      <table class="table table-striped table-sm">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Email</th>
+            <th scope="col">Phone</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for client in clients %}
+            <tr>
+              <td>
+                 {# Link to admin detail page for now - will update to frontend detail later #}
+                 <a href="{% url 'admin:documents_client_change' client.pk %}">{{ client.name }}</a>
+              </td>
+              <td>{{ client.email|default:"-" }}</td>
+              <td>{{ client.phone|default:"-" }}</td>
+              <td>
+                 <a href="{% url 'admin:documents_client_change' client.pk %}" class="action-link" title="View/Edit">Details</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p>No clients found. <a href="{% url 'admin:documents_client_add' %}">Add one now.</a></p>
+  {% endif %}
+
+{% endblock %}

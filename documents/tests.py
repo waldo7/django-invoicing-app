@@ -1573,8 +1573,32 @@ class DocumentViewTests(TestCase):
         response = self.client.get(detail_url)
         self.assertEqual(response.status_code, 404) # Not Found status
 
+    def test_client_list_view_logged_out_redirect(self):
+        """Test accessing client list view when logged out redirects to login."""
+        list_url = reverse('documents:client_list')
+        response = self.client.get(list_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={list_url}")
+
+    def test_client_list_view_logged_in_success(self):
+        """Test the client list view loads correctly for a logged-in user."""
+        list_url = reverse('documents:client_list')
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/client_list.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, "Clients") # Page title/heading
+        self.assertIn('clients', response.context) # Context variable
+        # Check if the client created in setUpTestData is present
+        self.assertContains(response, self.client_obj.name)
+        # Check that the list of clients in context contains our client object
+        self.assertIn(self.client_obj, response.context['clients'])
 
 
 
-        
 

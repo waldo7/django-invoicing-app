@@ -16,7 +16,7 @@ except ImportError:
     print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
-from .models import Order, MenuItem, Quotation, Setting, Invoice
+from .models import Order, MenuItem, Quotation, Setting, Invoice, Client
 
 # Create your views here.
 def get_menu_item_details(request, pk):
@@ -430,3 +430,17 @@ def order_detail_view(request, pk):
     }
     return render(request, 'documents/order_detail.html', context)
 
+
+@login_required
+def client_list_view(request):
+    """
+    Display a list of all clients.
+    """
+    clients = Client.objects.all().order_by('name') # Order by name
+    settings = Setting.get_solo() # For currency or other settings if needed in template later
+
+    context = {
+        'clients': clients,
+        'settings': settings, # Though not strictly needed for client list yet
+    }
+    return render(request, 'documents/client_list.html', context)

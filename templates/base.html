@@ -39,7 +39,7 @@
                 <a class="nav-link {% if request.resolver_match.view_name == 'documents:order_list' %}active{% endif %}" href="{% url 'documents:order_list' %}">Orders</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link" href="#">Clients</a> {# Placeholder #}
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:client_list' %}active{% endif %}" href="{% url 'documents:client_list' %}">Clients</a>
               </li>
             {% endif %}
           </ul>
