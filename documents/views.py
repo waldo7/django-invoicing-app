@@ -412,5 +412,21 @@ def order_list_view(request):
     return render(request, 'documents/order_list.html', context)
 
 
+@login_required
+def order_detail_view(request, pk):
+    """
+    Display the details of a single order.
+    """
+    order = get_object_or_404(
+        Order.objects.select_related('client', 'related_quotation'), pk=pk
+    )
+    items = order.items.select_related('menu_item').all()
+    settings = Setting.get_solo()
 
+    context = {
+        'order': order,
+        'items': items,
+        'settings': settings,
+    }
+    return render(request, 'documents/order_detail.html', context)
 

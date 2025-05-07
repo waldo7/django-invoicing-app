@@ -19,4 +19,5 @@ urlpatterns = [
     path('invoice/<int:pk>/revert-to-draft/', views.revert_invoice_to_draft, name='invoice_revert_to_draft'),
     path('invoices/', views.invoice_list_view, name='invoice_list'),
     path('orders/', views.order_list_view, name='order_list'),
+    path('order/<int:pk>/', views.order_detail_view, name='order_detail'),
 ]

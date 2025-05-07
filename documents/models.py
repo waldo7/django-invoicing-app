@@ -499,6 +499,12 @@ class Order(models.Model):
             InvoiceItem.objects.bulk_create(new_invoice_items)
 
         return new_invoice
+    
+    def get_admin_url(self):
+        """
+        Returns the URL to the admin change page for this order instance.
+        """
+        return reverse('admin:documents_order_change', args=[self.pk])
 
     def clean(self):
         """

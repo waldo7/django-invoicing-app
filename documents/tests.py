@@ -1361,6 +1361,13 @@ class DocumentViewTests(TestCase):
         cls.order2.refresh_from_db()
         # --- End Add ---
 
+        # --- Add items to order1 for detail view testing ---
+        menu_item_ord = MenuItem.objects.create(name="Ord Detail Item", unit_price=Decimal("75.00"))
+        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord, quantity=2, unit_price=Decimal("75.00")) # 150.00
+        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord, quantity=1, unit_price=Decimal("70.00")) # 70.00
+        # Total for order1 = 220.00 (assuming no tax/discount in this specific setup)
+        # --- End Add items ---
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1525,5 +1532,49 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, self.order2.order_number)
         self.assertContains(response, self.client_obj.name)
 
+    def test_order_detail_view_logged_out_redirect(self):
+        """Test accessing order detail view when logged out redirects to login."""
+        detail_url = reverse('documents:order_detail', args=[self.order1.pk])
+        response = self.client.get(detail_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={detail_url}")
 
+    def test_order_detail_view_logged_in_success(self):
+        """Test the order detail view loads correctly for a logged-in user."""
+        detail_url = reverse('documents:order_detail', args=[self.order1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/order_detail.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, f"Order {self.order1.order_number}") # Heading/Title check
+        self.assertIn('order', response.context) # Context variable
+        self.assertEqual(response.context['order'], self.order1) # Correct order object
+        self.assertIn('items', response.context) # Items passed
+        self.assertContains(response, "Ord Detail Item") # Check item name rendered
+        # Check one of the prices from the items
+        self.assertContains(response, "75.00")
+        # Check grand total (assuming no tax/discount set directly on this order for this test)
+        # self.order1.grand_total should be 220.00 here
+        self.assertContains(response, self.order1.grand_total)
+
+
+    def test_order_detail_view_not_found(self):
+        """Test accessing detail view for a non-existent order returns 404."""
+        invalid_pk = self.order1.pk + self.order2.pk + 100 # A PK unlikely to exist
+        detail_url = reverse('documents:order_detail', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 404) # Not Found status
+
+
+
+
+        
 

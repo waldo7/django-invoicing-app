@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}Order {{ order.order_number|default:order.pk }}{% endblock %}
+
+{% block content %}
+  {# Header Row with Title and Actions #}
+  <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Order {{ order.order_number|default:"Draft_ORD" }}</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+      <div class="btn-group me-2">
+        <a href="{{ order.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {# Add "Create Invoice from Order" button - check status #}
+        {% if order.status in "CONFIRMED,IN_PROGRESS,COMPLETED" and not order.invoices.exists %} {# Assuming OrderStatus enum available or use direct strings #}
+          <a href="{% url 'documents:order_create_invoice' order.pk %}" class="btn btn-sm btn-outline-success">Create Invoice</a>
+        {% elif order.invoices.exists %}
+          <span class="btn btn-sm btn-outline-secondary disabled">Invoice(s) Exist</span>
+        {% endif %}
+        {# Add other actions later e.g., Print Delivery Order #}
+      </div>
+    </div>
+  </div>
+
+  {# Info Row: Client / Order Details #}
+  <div class="row mb-3">
+    <div class="col-md-6">
+      <h5>To:</h5>
+      <p>
+        <strong>{{ order.client.name }}</strong><br>
+        {{ order.client.address|linebreaksbr|default:"" }}<br>
+        {% if order.client.email %}Email: {{ order.client.email }}<br>{% endif %}
+        {% if order.client.phone %}Phone: {{ order.client.phone }}{% endif %}
+      </p>
+    </div>
+    <div class="col-md-6 text-md-end">
+      {% if order.title %}<h5>Subject: {{ order.title }}</h5>{% endif %}
+      <p>
+        <strong>Status:</strong> <span class="badge bg-warning text-dark">{{ order.get_status_display }}</span><br>
+        <strong>Event Date:</strong> {{ order.event_date|date:"Y-m-d"|default:"N/A" }}<br>
+         {% if order.related_quotation %}
+            <strong>Quote Ref #:</strong> {{ order.related_quotation.quotation_number|default:order.related_quotation.pk }}<br>
+         {% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if order.delivery_address %}
+  <div class="row mb-3">
+      <div class="col-md-12">
+          <h5>Delivery Address:</h5>
+          <p>{{ order.delivery_address|linebreaksbr }}</p>
+      </div>
+  </div>
+  {% endif %}
+
+  {# Line Items Table #}
+  <h5>Items</h5>
+  <div class="table-responsive">
+    <table class="table table-striped table-sm">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Description</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end">Unit Price</th>
+          <th class="text-end">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %} {# Assumes 'items' from context (order.items.all) #}
+          <tr>
+            <td>{{ item.menu_item.name }}</td>
+            <td>{{ item.description|linebreaksbr }}</td>
+            <td class="text-end">{{ item.quantity|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.unit_price|floatformat:2 }}</td>
+            <td class="text-end">{{ settings.currency_symbol }} {{ item.line_total|floatformat:2 }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">No items on this order.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Totals #}
+  <div class="row justify-content-end mt-3">
+    <div class="col-md-5 col-lg-4">
+      <table class="table table-sm">
+         <tr>
+            <th class="text-end">Subtotal:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ order.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% if order.discount_amount > 0 %}
+        <tr>
+            <th class="text-end">Discount ({{ order.get_discount_type_display }} {% if order.discount_type == 'PERCENT' %}{{ order.discount_value|floatformat:2 }}%{% endif %}):</th>
+            <td class="text-end">- {{ settings.currency_symbol }} {{ order.discount_amount|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <th class="text-end">Total before Tax:</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ order.total_before_tax|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        {% if settings.tax_enabled and order.tax_amount > 0 %}
+        <tr>
+            <th class="text-end">SST ({{ settings.tax_rate|floatformat:2 }}%):</th>
+            <td class="text-end">{{ settings.currency_symbol }} {{ order.tax_amount|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <th class="text-end">Grand Total:</th>
+            <td class="text-end"><strong>{{ settings.currency_symbol }} {{ order.grand_total|floatformat:2 }}</strong></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  {# Notes #}
+  {% if order.notes %}
+    <div class="mt-4">
+      <h5>Internal Notes:</h5>
+      <p style="white-space: pre-wrap;">{{ order.notes }}</p>
+    </div>
+  {% endif %}
+
+{% endblock %}

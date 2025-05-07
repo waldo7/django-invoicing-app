@@ -32,7 +32,7 @@
             <tr>
               <td>
                  {# Link to admin detail page for now - will update to frontend detail later #}
-                 <a href="{% url 'admin:documents_order_change' order.pk %}">{{ order.order_number|default:"DRAFT_ORD" }}</a>
+                 <a href="{% url 'documents:order_detail' order.pk %}">{{ order.order_number|default:"DRAFT_ORD" }}</a>
               </td>
               <td>{{ order.client.name }}</td>
               <td>{{ order.title|default:"-" }}</td>
