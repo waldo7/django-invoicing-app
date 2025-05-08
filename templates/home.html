@@ -3,16 +3,6 @@
 {% block title %}Home - Invoice App{% endblock %} {# Override the title block #}
 
 {% block content %} {# Fill the content block defined in base.html #}
-  {# Display Django messages (copied from base, good here too after login redirect) #}
-  {% if messages %}
-    {% for message in messages %}
-      <div class="alert alert-{% if message.tags %}{{ message.tags }}{% else %}info{% endif %} alert-dismissible fade show" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    {% endfor %}
-  {% endif %}
-
   <div class="bg-light p-5 rounded mt-3"> {# Added Bootstrap jumbotron-like styling #}
       <h1>Welcome to the Invoicing Application</h1>
 
