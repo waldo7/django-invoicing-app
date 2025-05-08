@@ -1355,6 +1355,10 @@ class DocumentViewTests(TestCase):
         Payment.objects.create(invoice=cls.inv1, amount=Decimal("50.00"), payment_date=today) # Add a partial payment
         # --- End Add items/payment ---
 
+        menu_item_inv2 = MenuItem.objects.create(name="Inv Edit Item", unit_price=Decimal("10.00"))
+        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=10, unit_price=Decimal("10.00")) # Item 1 for inv2
+        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=5, unit_price=Decimal("11.00")) # Item 2 for inv2
+
         # --- Add Order creation ---
         today = date.today() # May 7, 2025
         cls.order1 = Order.objects.create(client=cls.client_obj, event_date=today, status=Order.OrderStatus.CONFIRMED, title="Order 1")
@@ -2058,5 +2062,155 @@ class DocumentViewTests(TestCase):
         # Verify original data didn't change
         self.quote1.refresh_from_db()
         self.assertEqual(self.quote1.title, original_title) # Title should not be updated
+
+
+    def test_invoice_update_view_get_logged_out_redirect(self):
+        """Test GET to invoice update view when logged out redirects."""
+        update_url = reverse('documents:invoice_update', args=[self.inv2.pk]) # Use Draft invoice
+        response = self.client.get(update_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={update_url}")
+
+    def test_invoice_update_view_get_not_draft(self):
+        """Test GET to update view for non-draft invoice redirects to detail."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:invoice_update', args=[self.inv1.pk]) # Use SENT invoice
+        response = self.client.get(update_url)
+        # Should redirect back to the detail page
+        self.assertEqual(response.status_code, 302)
+        detail_url = reverse('documents:invoice_detail', args=[self.inv1.pk])
+        self.assertRedirects(response, detail_url)
+
+    def test_invoice_update_view_get_draft(self):
+        """Test GET to update view for draft invoice loads form correctly."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:invoice_update', args=[self.inv2.pk]) # Use DRAFT invoice
+        response = self.client.get(update_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/invoice_form.html') # Reuses create template
+        self.assertIsInstance(response.context['form'], InvoiceForm)
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet)
+        self.assertEqual(response.context['form'].instance, self.inv2) # Check form bound to instance
+        self.assertEqual(response.context['item_formset'].instance, self.inv2) # Check formset bound
+        self.assertContains(response, f"Edit Invoice {self.inv2.invoice_number}") # Check title/heading
+        self.assertContains(response, "Inv Edit Item") # Check item appears
+
+    def test_invoice_update_view_post_valid_data(self):
+        """Test POST to update view with valid data updates invoice and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:invoice_update', args=[self.inv2.pk]) # Edit Draft invoice
+
+        existing_items = list(self.inv2.items.all().order_by('pk'))
+        self.assertEqual(len(existing_items), 2) # Should have 2 from setup
+
+        # Prepare POST data - simulate updating details and items
+        invoice_data = {
+            'client': self.inv2.client.pk,
+            'title': 'UPDATED Invoice Title',
+            'issue_date': '', # Still Draft
+            'due_date': '',   # Still Draft
+            'discount_type': DiscountType.FIXED.value, # Change discount
+            'discount_value': '5.00',
+            'payment_details': 'Updated payment details',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '3', # 2 initial + 1 extra = 3
+            'items-INITIAL_FORMS': '2', # Started with 2 items
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+
+            # Data for item 0 (Update existing_items[0])
+            'items-0-id': existing_items[0].pk,
+            'items-0-menu_item': existing_items[0].menu_item.pk,
+            'items-0-quantity': '12.00', # Change quantity
+            'items-0-unit_price': existing_items[0].unit_price,
+            'items-0-DELETE': '',
+
+            # Data for item 1 (Delete existing_items[1])
+            'items-1-id': existing_items[1].pk,
+            'items-1-menu_item': existing_items[1].menu_item.pk,
+            'items-1-quantity': existing_items[1].quantity,
+            'items-1-unit_price': existing_items[1].unit_price,
+            'items-1-DELETE': 'on', # Mark for deletion
+
+            # Data for item 2 (New item)
+            'items-2-id': '',
+            'items-2-menu_item': self.menu_item1.pk, # Use another menu item
+            'items-2-description': 'A brand new invoice item',
+            'items-2-quantity': '1.00',
+            'items-2-unit_price': '55.00',
+            'items-2-DELETE': '',
+        }
+        post_data = {**invoice_data, **item_formset_data}
+
+        response = self.client.post(update_url, post_data)
+
+        # Should redirect to detail view after successful update
+        self.assertEqual(response.status_code, 302, f"Update Form errors: {response.context.get('form').errors if response.context else 'No Context'}, Item formset errors: {response.context.get('item_formset').errors if response.context else 'No Context'}")
+        detail_url = reverse('documents:invoice_detail', args=[self.inv2.pk])
+        self.assertRedirects(response, detail_url)
+
+        # Verify changes saved
+        self.inv2.refresh_from_db()
+        self.assertEqual(self.inv2.title, 'UPDATED Invoice Title')
+        self.assertEqual(self.inv2.discount_type, DiscountType.FIXED)
+        self.assertEqual(self.inv2.items.count(), 2) # 2 original + 1 new - 1 deleted = 2
+
+        # Check updated item quantity
+        updated_item_0 = self.inv2.items.get(pk=existing_items[0].pk)
+        self.assertEqual(updated_item_0.quantity, Decimal('12.00'))
+
+        # Check new item exists
+        self.assertTrue(self.inv2.items.filter(description='A brand new invoice item').exists())
+
+        # Check deleted item is gone
+        self.assertFalse(self.inv2.items.filter(pk=existing_items[1].pk).exists())
+
+    def test_invoice_update_view_post_invalid_data(self):
+        """Test POST to update view with invalid data re-renders form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:invoice_update', args=[self.inv2.pk]) # Edit Draft invoice
+        existing_items = list(self.inv2.items.all().order_by('pk'))
+
+        # Invalid: Set quantity to non-number on existing item
+        post_data = {
+            'client': self.inv2.client.pk, 'title': 'Valid Update Title',
+            'items-TOTAL_FORMS': '2', 'items-INITIAL_FORMS': '2', # Submitting the 2 existing
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+            'items-0-id': existing_items[0].pk,
+            'items-0-menu_item': existing_items[0].menu_item.pk,
+            'items-0-quantity': 'invalid', # Invalid quantity
+            'items-0-unit_price': '10.00',
+            'items-1-id': existing_items[1].pk,
+            'items-1-menu_item': existing_items[1].menu_item.pk,
+            'items-1-quantity': '1',
+            'items-1-unit_price': '10.00',
+        }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 200) # Re-render
+        self.assertTemplateUsed(response, 'documents/invoice_form.html')
+        self.assertTrue(response.context['item_formset'].errors) # Check formset errors
+
+    def test_invoice_update_view_post_not_draft(self):
+        """Test POST to update view for non-draft invoice redirects."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:invoice_update', args=[self.inv1.pk]) # inv1 is SENT
+        original_title = self.inv1.title
+        post_data = { # Minimal valid-looking data
+            'client': self.inv1.client.pk, 'title': 'Attempt Update Sent Invoice',
+            'items-TOTAL_FORMS': '0', 'items-INITIAL_FORMS': '0', 'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+        }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 302) # Should redirect away
+        detail_url = reverse('documents:invoice_detail', args=[self.inv1.pk])
+        self.assertRedirects(response, detail_url)
+        # Verify original data didn't change
+        self.inv1.refresh_from_db()
+        self.assertEqual(self.inv1.title, original_title) # Title should not be updated
+
+
+
 
 

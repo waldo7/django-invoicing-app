@@ -606,4 +606,46 @@ def quotation_update_view(request, pk):
     return render(request, 'documents/quotation_form.html', context)
 
 
+@login_required
+@transaction.atomic
+def invoice_update_view(request, pk):
+    """
+    View to handle editing an existing Invoice and its line items.
+    Only allows editing if the invoice is in DRAFT status.
+    """
+    invoice = get_object_or_404(Invoice, pk=pk)
+    page_title = f"Edit Invoice {invoice.invoice_number or 'Draft'}"
 
+    # --- IMPORTANT: Prevent editing finalized invoices ---
+    if invoice.status != Invoice.Status.DRAFT:
+        messages.error(request, "Only DRAFT invoices can be edited.")
+        return redirect(reverse('documents:invoice_detail', args=[invoice.pk]))
+
+    if request.method == 'POST':
+        # Pass instance for update
+        form = InvoiceForm(request.POST, instance=invoice)
+        item_formset = InvoiceItemFormSet(request.POST, instance=invoice, prefix='items')
+
+        if form.is_valid() and item_formset.is_valid():
+            form.save() # Saves changes to the main invoice instance
+            item_formset.save() # Saves changes to items
+
+            messages.success(request, f"Invoice {invoice.invoice_number} updated successfully.")
+            # Redirect to the detail page of the updated invoice
+            return redirect(reverse('documents:invoice_detail', args=[invoice.pk]))
+        else:
+            # If forms are not valid, display errors
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        # Populate forms with existing instance data
+        form = InvoiceForm(instance=invoice)
+        item_formset = InvoiceItemFormSet(instance=invoice, prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+        'invoice': invoice, # Pass invoice for context if needed in template title etc.
+    }
+    # Reuse the same template as the create view
+    return render(request, 'documents/invoice_form.html', context)

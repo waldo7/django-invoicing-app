@@ -9,9 +9,31 @@
     <h1 class="h2">Invoice {{ invoice.invoice_number|default:"Draft" }}</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
+        {# --- Add this Edit button conditionally --- #}
+        {% if invoice.status == 'DRAFT' %}
+          <a href="{% url 'documents:invoice_update' invoice.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
+        {% endif %}
+        {# --- End Add --- #}
+
+        {# Keep existing buttons #}
         <a href="{{ invoice.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
-        <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a>
-        {# Add other actions like 'Record Payment' or 'Send' later #}
+        {# PDF buttons - Keep existing logic #}
+        {% if invoice.status == 'DRAFT' %}
+          <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Draft PDF</a>
+        {% else %}
+             {% if invoice.status == 'SENT' or invoice.status == 'PAID' or invoice.status == 'PART_PAID' %}
+               <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View Final PDF</a>
+             {% endif %}
+        {% endif %}
+         {# Finalize Button - Keep existing logic #}
+        {% if invoice.status == 'DRAFT' %}
+          <a href="{% url 'documents:invoice_finalize' invoice.pk %}" class="btn btn-sm btn-success">Finalize Invoice</a>
+        {% endif %}
+         {# Revert Button - Keep existing logic #}
+         {% if invoice.status == 'SENT' %}
+          <a href="{% url 'documents:invoice_revert_to_draft' invoice.pk %}" class="btn btn-sm btn-warning">Revert to Draft</a>
+        {% endif %}
+        {# Add other actions like 'Record Payment' later #}
       </div>
     </div>
   </div>
