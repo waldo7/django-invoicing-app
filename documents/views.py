@@ -18,7 +18,7 @@ except ImportError:
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
 from .models import Order, MenuItem, Quotation, Setting, Invoice, Client
-from .forms import QuotationForm, QuotationItemFormSet
+from .forms import QuotationForm, QuotationItemFormSet, InvoiceForm, InvoiceItemFormSet
 
 
 # Create your views here.
@@ -519,6 +519,46 @@ def quotation_create_view(request):
         'page_title': page_title,
     }
     return render(request, 'documents/quotation_form.html', context)
+
+
+@login_required
+@transaction.atomic # Ensure all database operations succeed or fail together
+def invoice_create_view(request):
+    """
+    View to handle creating a new Invoice with its line items.
+    """
+    page_title = "Create New Invoice"
+
+    if request.method == 'POST':
+        form = InvoiceForm(request.POST)
+        item_formset = InvoiceItemFormSet(request.POST, prefix='items') # Use same prefix
+
+        if form.is_valid() and item_formset.is_valid():
+            invoice = form.save(commit=False)
+            invoice.status = Invoice.Status.DRAFT # New invoices start as Draft
+            # issue_date and due_date are left blank until finalized
+            invoice.save() # Save Invoice header (triggers auto-numbering)
+
+            # Link formset to the saved invoice and save items
+            item_formset.instance = invoice
+            item_formset.save()
+
+            messages.success(request, f"Invoice {invoice.invoice_number} created successfully as Draft.")
+            # Redirect to the detail page of the new invoice
+            return redirect(reverse('documents:invoice_detail', args=[invoice.pk]))
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        form = InvoiceForm()
+        item_formset = InvoiceItemFormSet(prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+    }
+    # We need to create this template file next
+    return render(request, 'documents/invoice_form.html', context)
 
 
 

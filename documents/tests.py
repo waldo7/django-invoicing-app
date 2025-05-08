@@ -10,7 +10,7 @@ from django import forms
 
 
 # Create your tests here.
-from .forms import QuotationForm, QuotationItemFormSet
+from .forms import QuotationForm, QuotationItemFormSet, InvoiceForm, InvoiceItemFormSet
 
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
@@ -1797,3 +1797,107 @@ class DocumentViewTests(TestCase):
         self.assertIn('item_formset', response.context)
         self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())
         self.assertContains(response, "Please correct the errors below.")
+
+    def test_invoice_create_view_get_logged_out_redirect(self):
+        """Test GET to invoice create view when logged out redirects."""
+        create_url = reverse('documents:invoice_create')
+        response = self.client.get(create_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={create_url}")
+
+    def test_invoice_create_view_get_logged_in(self):
+        """Test GET to invoice create view when logged in shows the form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        response = self.client.get(reverse('documents:invoice_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/invoice_form.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertIsInstance(response.context['form'], InvoiceForm)
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet)
+        self.assertContains(response, "Create New Invoice")
+
+    def test_invoice_create_view_post_valid_data(self):
+        """Test POST to create view with valid data creates invoice and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:invoice_create')
+
+        # Prepare POST data (using cls.client_obj, cls.menu_item1 from setUpTestData)
+        invoice_data = {
+            'client': self.client_obj.pk,
+            'title': 'New Test Invoice via Form',
+            'issue_date': '', # Optional for draft
+            'due_date': '', # Optional for draft
+            'discount_type': DiscountType.NONE.value,
+            'discount_value': '0.00',
+            'payment_details': 'Pay Here Ltd.',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '1', # Submitting one item form
+            'items-INITIAL_FORMS': '0',
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-description': 'Invoice Item Desc A',
+            'items-0-quantity': '3.00',
+            'items-0-unit_price': '25.00', # Use the price from menu_item1
+            'items-0-grouping_label': '',
+        }
+        post_data = {**invoice_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+
+        # Check for redirect after successful creation
+        self.assertEqual(response.status_code, 302, f"Form errors: {response.context.get('form').errors if response.context else 'No Context'}, Item formset errors: {response.context.get('item_formset').errors if response.context else 'No Context'}")
+
+        # Verify invoice created
+        new_invoice = Invoice.objects.filter(title='New Test Invoice via Form').order_by('-created_at').first()
+        self.assertIsNotNone(new_invoice)
+        self.assertEqual(new_invoice.client, self.client_obj)
+        self.assertEqual(new_invoice.status, Invoice.Status.DRAFT)
+        self.assertEqual(new_invoice.items.count(), 1)
+
+        # Check item details
+        item_a = new_invoice.items.first()
+        self.assertEqual(item_a.menu_item, self.menu_item1)
+        self.assertEqual(item_a.quantity, Decimal('3.00'))
+        self.assertEqual(item_a.unit_price, Decimal('25.00'))
+
+    def test_invoice_create_view_post_invalid_main_form(self):
+        """Test POST with invalid main form data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:invoice_create')
+        # Invalid: Missing client
+        invoice_data = {'title': 'Invalid Invoice'}
+        item_formset_data = { # Need valid management form
+            'items-TOTAL_FORMS': '0', 'items-INITIAL_FORMS': '0',
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+        }
+        post_data = {**invoice_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200) # Re-renders form
+        self.assertTemplateUsed(response, 'documents/invoice_form.html')
+        self.assertTrue(response.context['form'].errors) # Check for errors
+
+    def test_invoice_create_view_post_invalid_item_formset(self):
+        """Test POST with invalid item formset data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:invoice_create')
+        invoice_data = {
+            'client': self.client_obj.pk,
+            'title': 'Invoice with Invalid Item',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '1', 'items-INITIAL_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-quantity': '', # Invalid: missing quantity
+            'items-0-unit_price': '', # Invalid: missing price
+        }
+        post_data = {**invoice_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/invoice_form.html')
+        self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())

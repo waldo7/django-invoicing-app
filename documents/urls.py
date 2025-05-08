@@ -19,6 +19,7 @@ urlpatterns = [
     path('invoice/<int:pk>/finalize/', views.finalize_invoice, name='invoice_finalize'),
     path('invoice/<int:pk>/revert-to-draft/', views.revert_invoice_to_draft, name='invoice_revert_to_draft'),
     path('invoices/', views.invoice_list_view, name='invoice_list'),
+    path('invoices/new/', views.invoice_create_view, name='invoice_create'),
     path('orders/', views.order_list_view, name='order_list'),
     path('order/<int:pk>/', views.order_detail_view, name='order_detail'),
     path('clients/', views.client_list_view, name='client_list'),
