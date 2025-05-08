@@ -561,4 +561,49 @@ def invoice_create_view(request):
     return render(request, 'documents/invoice_form.html', context)
 
 
+@login_required
+@transaction.atomic
+def quotation_update_view(request, pk):
+    """
+    View to handle editing an existing Quotation and its line items.
+    Only allows editing if the quotation is in DRAFT status.
+    """
+    quotation = get_object_or_404(Quotation, pk=pk)
+    page_title = f"Edit Quotation {quotation.quotation_number or 'Draft'}"
+
+    # --- IMPORTANT: Prevent editing finalized quotations ---
+    if quotation.status != Quotation.Status.DRAFT:
+        messages.error(request, "Only DRAFT quotations can be edited.")
+        return redirect(reverse('documents:quotation_detail', args=[quotation.pk]))
+
+    if request.method == 'POST':
+        # Pass instance for update
+        form = QuotationForm(request.POST, instance=quotation)
+        item_formset = QuotationItemFormSet(request.POST, instance=quotation, prefix='items')
+
+        if form.is_valid() and item_formset.is_valid():
+            form.save() # Saves changes to the main quotation instance
+            item_formset.save() # Saves changes to items (adds new, updates existing, deletes marked)
+
+            messages.success(request, f"Quotation {quotation.quotation_number} updated successfully.")
+            # Redirect to the detail page of the updated quotation
+            return redirect(reverse('documents:quotation_detail', args=[quotation.pk]))
+        else:
+            # If forms are not valid, display errors
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        # Populate forms with existing instance data
+        form = QuotationForm(instance=quotation)
+        item_formset = QuotationItemFormSet(instance=quotation, prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+        'quotation': quotation, # Pass quotation for context if needed in template
+    }
+    # Reuse the same template as the create view
+    return render(request, 'documents/quotation_form.html', context)
+
+
 

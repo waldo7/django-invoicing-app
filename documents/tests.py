@@ -1374,6 +1374,9 @@ class DocumentViewTests(TestCase):
         cls.menu_item1 = MenuItem.objects.create(name="General Test Item A", unit_price=Decimal("25.00"), unit="ITEM")
         cls.menu_item2 = MenuItem.objects.create(name="General Test Item B", unit_price=Decimal("70.00"), unit="ITEM")
 
+        QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item1, quantity=5, unit_price=Decimal("25.00"))
+        QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item2, quantity=1, unit_price=Decimal("70.00"))
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -1901,3 +1904,159 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'documents/invoice_form.html')
         self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())
+
+    def test_quotation_update_view_get_logged_out_redirect(self):
+        """Test GET to update view when logged out redirects."""
+        update_url = reverse('documents:quotation_update', args=[self.quote2.pk]) # Use Draft quote
+        response = self.client.get(update_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={update_url}")
+
+    def test_quotation_update_view_get_not_draft(self):
+        """Test GET to update view for non-draft quote redirects to detail."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:quotation_update', args=[self.quote1.pk]) # Use SENT quote
+        response = self.client.get(update_url)
+        # Should redirect back to the detail page
+        self.assertEqual(response.status_code, 302)
+        detail_url = reverse('documents:quotation_detail', args=[self.quote1.pk])
+        self.assertRedirects(response, detail_url)
+
+    def test_quotation_update_view_get_draft(self):
+        """Test GET to update view for draft quote loads form correctly."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:quotation_update', args=[self.quote2.pk]) # Use DRAFT quote
+        response = self.client.get(update_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/quotation_form.html')
+        self.assertIsInstance(response.context['form'], QuotationForm)
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet)
+        self.assertEqual(response.context['form'].instance, self.quote2) # Check form bound to instance
+        self.assertEqual(response.context['item_formset'].instance, self.quote2) # Check formset bound
+        self.assertContains(response, f"Edit Quotation {self.quote2.quotation_number}") # Check title/heading
+        self.assertContains(response, self.client_obj.name) # Check client selected
+        self.assertContains(response, "General Test Item A") # Check item appears
+
+    def test_quotation_update_view_post_valid_data(self):
+        """Test POST to update view with valid data updates quotation and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:quotation_update', args=[self.quote2.pk]) # Edit Draft quote
+
+        # Fetch existing items to get their PKs for the formset data
+        existing_items = list(self.quote2.items.all().order_by('pk'))
+        self.assertEqual(len(existing_items), 2) # Should have 2 from setup
+
+        # Prepare POST data - simulate updating details and items
+        quotation_data = {
+            'client': self.quote2.client.pk,
+            'title': 'UPDATED Quote Title',
+            'issue_date': '',
+            'valid_until': '',
+            'discount_type': DiscountType.PERCENTAGE.value, # Change discount
+            'discount_value': '5.00', # Set 5% discount
+            'terms_and_conditions': 'Updated terms.',
+            'notes': 'Updated notes.',
+        }
+        # Formset data: update item 0, delete item 1, add item 2
+        item_formset_data = {
+            'items-TOTAL_FORMS': '3', # One original updated, one original deleted, one new
+            'items-INITIAL_FORMS': '2', # Started with 2 items
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+
+            # Data for item 0 (Update existing_items[0])
+            'items-0-id': existing_items[0].pk, # IMPORTANT: Include ID for existing forms
+            'items-0-menu_item': existing_items[0].menu_item.pk,
+            'items-0-description': existing_items[0].description,
+            'items-0-quantity': '3.00', # Change quantity
+            'items-0-unit_price': existing_items[0].unit_price,
+            'items-0-grouping_label': existing_items[0].grouping_label,
+            'items-0-DELETE': '', # Do not delete
+
+            # Data for item 1 (Delete existing_items[1])
+            'items-1-id': existing_items[1].pk, # IMPORTANT: Include ID
+            'items-1-menu_item': existing_items[1].menu_item.pk,
+            'items-1-description': existing_items[1].description,
+            'items-1-quantity': existing_items[1].quantity,
+            'items-1-unit_price': existing_items[1].unit_price,
+            'items-1-grouping_label': existing_items[1].grouping_label,
+            'items-1-DELETE': 'on', # Mark for deletion
+
+            # Data for item 2 (New item)
+            'items-2-id': '', # IMPORTANT: Empty ID for new forms
+            'items-2-menu_item': self.menu_item1.pk, # Use a menu item
+            'items-2-description': 'A brand new item',
+            'items-2-quantity': '1.00',
+            'items-2-unit_price': '99.00',
+            'items-2-grouping_label': 'Group New',
+            'items-2-DELETE': '', # Do not delete
+        }
+        post_data = {**quotation_data, **item_formset_data}
+
+        response = self.client.post(update_url, post_data)
+
+        # Should redirect to detail view after successful update
+        self.assertEqual(response.status_code, 302, f"Form errors: {response.context.get('form').errors if response.context else 'No Context'}, Item formset errors: {response.context.get('item_formset').errors if response.context else 'No Context'}")
+        detail_url = reverse('documents:quotation_detail', args=[self.quote2.pk])
+        self.assertRedirects(response, detail_url)
+
+        # Verify changes saved
+        self.quote2.refresh_from_db()
+        self.assertEqual(self.quote2.title, 'UPDATED Quote Title')
+        self.assertEqual(self.quote2.discount_type, DiscountType.PERCENTAGE)
+        self.assertEqual(self.quote2.discount_value, Decimal('5.00'))
+        self.assertEqual(self.quote2.items.count(), 2) # 2 original + 1 new - 1 deleted = 2
+
+        # Check updated item quantity
+        updated_item_0 = self.quote2.items.get(pk=existing_items[0].pk)
+        self.assertEqual(updated_item_0.quantity, Decimal('3.00'))
+
+        # Check new item exists
+        self.assertTrue(self.quote2.items.filter(description='A brand new item').exists())
+
+        # Check deleted item is gone
+        self.assertFalse(self.quote2.items.filter(pk=existing_items[1].pk).exists())
+
+    def test_quotation_update_view_post_invalid_data(self):
+        """Test POST to update view with invalid data re-renders form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:quotation_update', args=[self.quote2.pk])
+        # Invalid: Set quantity to non-number
+        post_data = {
+            'client': self.quote2.client.pk, 'title': 'Valid Title',
+            'items-TOTAL_FORMS': '2', 'items-INITIAL_FORMS': '2',
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+            'items-0-id': self.quote2.items.all()[0].pk,
+            'items-0-menu_item': self.quote2.items.all()[0].menu_item.pk,
+            'items-0-quantity': 'abc', # Invalid quantity
+            'items-0-unit_price': '10.00',
+            'items-1-id': self.quote2.items.all()[1].pk,
+            'items-1-menu_item': self.quote2.items.all()[1].menu_item.pk,
+            'items-1-quantity': '1',
+            'items-1-unit_price': '10.00',
+        }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 200) # Re-render
+        self.assertTemplateUsed(response, 'documents/quotation_form.html')
+        self.assertTrue(response.context['item_formset'].errors) # Check formset errors
+
+    def test_quotation_update_view_post_not_draft(self):
+        """Test POST to update view for non-draft quote redirects."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:quotation_update', args=[self.quote1.pk]) # quote1 is SENT
+        original_title = self.quote1.title
+        post_data = { # Minimal valid-looking data
+            'client': self.quote1.client.pk, 'title': 'Attempt Update Sent',
+            'items-TOTAL_FORMS': '0', 'items-INITIAL_FORMS': '0', 'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+        }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 302) # Should redirect away
+        detail_url = reverse('documents:quotation_detail', args=[self.quote1.pk])
+        self.assertRedirects(response, detail_url)
+        # Verify original data didn't change
+        self.quote1.refresh_from_db()
+        self.assertEqual(self.quote1.title, original_title) # Title should not be updated
+
+

@@ -9,12 +9,35 @@
     <h1 class="h2">Quotation {{ quotation.quotation_number|default:"Draft" }}</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
-        <a href="{{ quotation.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a> {# We'll add get_admin_url method later #}
-        <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View PDF</a>
+        {# --- Add this Edit button conditionally --- #}
+        {% if quotation.status == 'DRAFT' %}
+        <a href="{% url 'documents:quotation_update' quotation.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
+        {% endif %}
+        {# --- End Add --- #}
+
+        {# Keep existing buttons #}
+        <a href="{{ quotation.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {# PDF buttons - Keep existing logic #}
+        {% if quotation.status == 'DRAFT' %}
+        <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Draft PDF</a>
+        {% else %}
+            {# Check final statuses again based on your logic #}
+            {% if quotation.status == 'SENT' or quotation.status == 'ACCEPTED' or quotation.status == 'REJECTED' or quotation.status == 'SUPERSEDED' %}
+            <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View Final PDF</a>
+            {% endif %}
+        {% endif %}
+        {# Revise Button - Keep existing logic #}
         {% if quotation.status == 'SENT' or quotation.status == 'ACCEPTED' or quotation.status == 'REJECTED' %}
           <a href="{% url 'documents:quotation_revise' quotation.pk %}" class="btn btn-sm btn-outline-warning">Revise</a>
         {% endif %}
-        {# Add "Create Order/Invoice" button later #}
+        {# Finalize Button - Keep existing logic #}
+        {% if quotation.status == 'DRAFT' %}
+          <a href="{% url 'documents:quotation_finalize' quotation.pk %}" class="btn btn-sm btn-success">Finalize Quotation</a>
+        {% endif %}
+         {# Revert Button - Keep existing logic #}
+         {% if quotation.status == 'SENT' %}
+          <a href="{% url 'documents:quotation_revert_to_draft' quotation.pk %}" class="btn btn-sm btn-warning">Revert to Draft</a>
+        {% endif %}
       </div>
     </div>
   </div>
