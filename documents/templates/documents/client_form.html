@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% load i18n %}
+
+{% block title %}{{ page_title|default:"Manage Client" }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ page_title|default:"Manage Client" }}</h1>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {# Display non-field errors from the form #}
+        {% if form.non_field_errors %}
+            <div class="alert alert-danger">
+                {% for error in form.non_field_errors %}
+                    <p>{{ error }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {# Main Client Form Fields #}
+        {# Loop through form fields - assumes Bootstrap classes added in forms.py __init__ #}
+        {% for field in form %}
+            <div class="mb-3">
+                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                {{ field }} {# Django will render the input with Bootstrap classes from the form's __init__ #}
+                {% if field.help_text %}
+                    <div class="form-text">{{ field.help_text|safe }}</div>
+                {% endif %}
+                {% for error in field.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div> {# d-block to make it show #}
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <hr class="my-4">
+        <button type="submit" class="btn btn-primary">Save Client</button>
+        <a href="{% url 'documents:client_list' %}" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

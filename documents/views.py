@@ -21,7 +21,8 @@ from .models import Order, MenuItem, Quotation, Setting, Invoice, Client, OrderI
 from .forms import (
     QuotationForm, QuotationItemFormSet, 
     InvoiceForm, InvoiceItemFormSet,
-    OrderForm, OrderItemFormSet
+    OrderForm, OrderItemFormSet,
+    ClientForm
 )
 
 
@@ -740,3 +741,40 @@ def order_update_view(request, pk):
     }
     # Reuse the create template
     return render(request, 'documents/order_form.html', context)
+
+
+@login_required
+def client_create_view(request):
+    """
+    View to handle creating a new Client.
+    """
+    page_title = "Add New Client"
+
+    if request.method == 'POST':
+        form = ClientForm(request.POST)
+        if form.is_valid():
+            client = form.save() # Save the new client instance
+            messages.success(request, f"Client '{client.name}' created successfully.")
+            # Redirect to the detail page of the newly created client
+            return redirect(reverse('documents:client_detail', args=[client.pk]))
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        form = ClientForm()
+
+    context = {
+        'form': form,
+        'page_title': page_title,
+    }
+    # We will create this template file next
+    return render(request, 'documents/client_form.html', context)
+
+
+
+
+
+
+
+
+
+

@@ -3,7 +3,8 @@ from django import forms
 
 from .models import (
     Quotation, QuotationItem, Client, MenuItem, DiscountType, 
-    Invoice, InvoiceItem, Order, OrderItem
+    Invoice, InvoiceItem, Order, OrderItem,
+    Client
     )
 
 class QuotationForm(forms.ModelForm):
@@ -224,3 +225,29 @@ OrderItemFormSet = forms.inlineformset_factory(
     can_delete_extra=True,
     min_num=0
 )
+
+
+class ClientForm(forms.ModelForm):
+    class Meta:
+        model = Client
+        fields = ['name', 'address', 'email', 'phone', 'tax_id'] # Add all fields you want on the form
+        widgets = {
+            'address': forms.Textarea(attrs={'rows': 3}),
+            # Add any other widget customizations if needed
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Add Bootstrap classes to form fields
+        for field_name, field in self.fields.items():
+            if hasattr(field.widget, 'attrs'):
+                current_class = field.widget.attrs.get('class', '')
+                field.widget.attrs['class'] = f'{current_class} form-control form-control-sm'.strip()
+                if isinstance(field.widget, forms.CheckboxInput):
+                     field.widget.attrs['class'] = 'form-check-input'
+                elif isinstance(field.widget, forms.Select): # Though ClientForm might not have Selects by default
+                     field.widget.attrs['class'] = 'form-select form-select-sm'
+
+
+
+                     

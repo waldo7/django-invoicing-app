@@ -18,7 +18,12 @@ class Client(models.Model):
     address = models.TextField(blank=True, default="")
     email = models.EmailField(blank=True, default="")
     phone = models.CharField(max_length=50, blank=True, default="")
-
+    tax_id = models.CharField(
+        max_length=50,  # Adjust max_length as needed
+        blank=True,     # Make it optional
+        default='',
+        verbose_name="Client Tax ID"
+    )
     #Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

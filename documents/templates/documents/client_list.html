@@ -8,7 +8,7 @@
     <h1 class="h2">Clients</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
-        <a href="{% url 'admin:documents_client_add' %}" class="btn btn-sm btn-outline-secondary">Add Client</a>
+        <a href="{% url 'documents:client_create' %}" class="btn btn-sm btn-outline-secondary">Add Client</a>
       </div>
     </div>
   </div>
@@ -42,7 +42,7 @@
       </table>
     </div>
   {% else %}
-    <p>No clients found. <a href="{% url 'admin:documents_client_add' %}">Add one now.</a></p>
+    <p>No clients found. <a href="{% url 'documents:client_create' %}">Add one now.</a></p>
   {% endif %}
 
 {% endblock %}

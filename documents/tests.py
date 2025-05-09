@@ -13,7 +13,8 @@ from django import forms
 from .forms import (
     QuotationForm, QuotationItemFormSet, 
     InvoiceForm, InvoiceItemFormSet,
-    OrderForm, OrderItemFormSet
+    OrderForm, OrderItemFormSet,
+    ClientForm
 )
 
 from .models import (
@@ -2479,6 +2480,69 @@ class DocumentViewTests(TestCase):
         # Verify original data didn't change
         self.order_completed.refresh_from_db()
         self.assertEqual(self.order_completed.title, original_title)
+
+    def test_client_create_view_get_logged_out_redirect(self):
+        """Test GET to client create view when logged out redirects."""
+        create_url = reverse('documents:client_create')
+        response = self.client.get(create_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={create_url}")
+
+    def test_client_create_view_get_logged_in(self):
+        """Test GET to client create view when logged in shows the form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        response = self.client.get(reverse('documents:client_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/client_form.html') # Check correct template
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertIsInstance(response.context['form'], ClientForm) # Check correct form
+        self.assertContains(response, "Add New Client")
+
+    def test_client_create_view_post_valid_data(self):
+        """Test POST to create view with valid data creates client."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:client_create')
+        initial_client_count = Client.objects.count()
+
+        client_data = {
+            'name': 'New Client Via Form',
+            'address': '123 Form Street',
+            'email': 'formclient@example.com',
+            'phone': '555-0001',
+            'tax_id': 'TAXFORM123'
+        }
+        response = self.client.post(create_url, client_data)
+
+        # Check for redirect after successful creation
+        self.assertEqual(Client.objects.count(), initial_client_count + 1)
+        new_client = Client.objects.get(name='New Client Via Form')
+        self.assertIsNotNone(new_client)
+        self.assertEqual(new_client.email, 'formclient@example.com')
+
+        # Check redirect (status code 302)
+        detail_url = reverse('documents:client_detail', args=[new_client.pk])
+        self.assertRedirects(response, detail_url, status_code=302, target_status_code=200)
+
+        # Check for success message (requires fetching the redirected page)
+        # response_redirected = self.client.get(detail_url)
+        # self.assertContains(response_redirected, "Client 'New Client Via Form' created successfully.")
+
+    def test_client_create_view_post_invalid_data(self):
+        """Test POST with invalid main form data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:client_create')
+        # Invalid: Missing name (which is required)
+        client_data = {
+            'address': 'No Name Address',
+            'email': 'noname@example.com'
+        }
+        response = self.client.post(create_url, client_data)
+
+        self.assertEqual(response.status_code, 200) # Re-renders form
+        self.assertTemplateUsed(response, 'documents/client_form.html')
+        self.assertTrue(response.context['form'].errors) # Check for errors
+        self.assertContains(response, "Please correct the errors below.")
 
     
 
