@@ -1379,6 +1379,21 @@ class DocumentViewTests(TestCase):
         # Total for order1 = 220.00 (assuming no tax/discount in this specific setup)
         # --- End Add items ---
 
+        cls.order_completed = Order.objects.create(
+            client=cls.client_obj,
+            event_date=today - timedelta(days=10),
+            status=Order.OrderStatus.COMPLETED, # Set status to COMPLETED
+            title="Completed Order Test"
+        )
+        cls.order_completed.refresh_from_db()
+        # Add an item to it for consistency, can reuse menu_item_ord
+        OrderItem.objects.create(
+            order=cls.order_completed,
+            menu_item=menu_item_ord, # You can reuse an existing menu item
+            quantity=1,
+            unit_price=Decimal("60.00")
+        )
+
         cls.menu_item1 = MenuItem.objects.create(name="General Test Item A", unit_price=Decimal("25.00"), unit="ITEM")
         cls.menu_item2 = MenuItem.objects.create(name="General Test Item B", unit_price=Decimal("70.00"), unit="ITEM")
 
@@ -2326,6 +2341,153 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'documents/order_form.html')
         self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())
+
+    def test_order_update_view_get_logged_out_redirect(self):
+        """Test GET to order update view when logged out redirects."""
+        # Use order1 created in setUpTestData (status=CONFIRMED, editable)
+        update_url = reverse('documents:order_update', args=[self.order1.pk])
+        response = self.client.get(update_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={update_url}")
+
+    def test_order_update_view_get_not_editable_status(self):
+        """Test GET to update view for non-editable order redirects to detail."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        # Use order_completed created in setUpTestData (status=COMPLETED)
+        update_url = reverse('documents:order_update', args=[self.order_completed.pk])
+        response = self.client.get(update_url)
+        # Should redirect back to the detail page
+        self.assertEqual(response.status_code, 302)
+        detail_url = reverse('documents:order_detail', args=[self.order_completed.pk])
+        self.assertRedirects(response, detail_url)
+        # We can't easily check the message content with the basic test client
+
+    def test_order_update_view_get_editable_status(self):
+        """Test GET to update view for editable order loads form correctly."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+         # Use order1 created in setUpTestData (status=CONFIRMED)
+        update_url = reverse('documents:order_update', args=[self.order1.pk])
+        response = self.client.get(update_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/order_form.html') # Reuses create template
+        self.assertIsInstance(response.context['form'], OrderForm)
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet)
+        self.assertEqual(response.context['form'].instance, self.order1) # Check form bound
+        self.assertEqual(response.context['item_formset'].instance, self.order1) # Check formset bound
+        self.assertContains(response, f"Edit Order {self.order1.order_number}")
+        self.assertContains(response, "Ord Detail Item") # Check item appears
+
+    def test_order_update_view_post_valid_data(self):
+        """Test POST to update view with valid data updates order and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:order_update', args=[self.order1.pk]) # Edit order1
+
+        existing_items = list(self.order1.items.all().order_by('pk'))
+        self.assertEqual(len(existing_items), 2) # Should have 2 from setup
+
+        # Prepare POST data - simulate updating details and items
+        order_data = {
+            'client': self.order1.client.pk,
+            'title': 'UPDATED Order 1 Title',
+            'event_date': self.order1.event_date.strftime('%Y-%m-%d'),
+            'discount_type': DiscountType.PERCENTAGE.value, # Change discount
+            'discount_value': '2.5', # 2.5%
+            'delivery_address': 'New Delivery Spot',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '3', # 2 initial + 1 extra
+            'items-INITIAL_FORMS': '2',
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+
+            # Item 0 (Update existing_items[0])
+            'items-0-id': existing_items[0].pk,
+            'items-0-menu_item': existing_items[0].menu_item.pk,
+            'items-0-quantity': '1.00', # Change quantity
+            'items-0-unit_price': existing_items[0].unit_price,
+            'items-0-DELETE': '',
+
+            # Item 1 (Delete existing_items[1])
+            'items-1-id': existing_items[1].pk,
+            'items-1-menu_item': existing_items[1].menu_item.pk,
+            'items-1-quantity': existing_items[1].quantity,
+            'items-1-unit_price': existing_items[1].unit_price,
+            'items-1-DELETE': 'on', # Mark for deletion
+
+            # Item 2 (New item)
+            'items-2-id': '',
+            'items-2-menu_item': self.menu_item2.pk, # Use General Test Item B
+            'items-2-description': 'New order item added during edit',
+            'items-2-quantity': '10.00',
+            'items-2-unit_price': '70.00',
+            'items-2-DELETE': '',
+        }
+        post_data = {**order_data, **item_formset_data}
+
+        response = self.client.post(update_url, post_data)
+
+        # Check redirect after successful update
+        detail_url = reverse('documents:order_detail', args=[self.order1.pk])
+        self.assertRedirects(response, detail_url, status_code=302, target_status_code=200)
+
+        # Verify changes saved
+        self.order1.refresh_from_db()
+        self.assertEqual(self.order1.title, 'UPDATED Order 1 Title')
+        self.assertEqual(self.order1.discount_type, DiscountType.PERCENTAGE)
+        self.assertEqual(self.order1.items.count(), 2) # 2 original + 1 new - 1 deleted = 2
+
+        updated_item_0 = self.order1.items.get(pk=existing_items[0].pk)
+        self.assertEqual(updated_item_0.quantity, Decimal('1.00'))
+        self.assertTrue(self.order1.items.filter(description='New order item added during edit').exists())
+        self.assertFalse(self.order1.items.filter(pk=existing_items[1].pk).exists())
+
+    def test_order_update_view_post_invalid_data(self):
+        """Test POST to order update view with invalid data re-renders form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:order_update', args=[self.order1.pk]) # Use editable order
+        existing_items = list(self.order1.items.all().order_by('pk'))
+        # Invalid: Blank quantity on existing item
+        post_data = {
+            'client': self.order1.client.pk, 'title': 'Invalid Order Update',
+            'items-TOTAL_FORMS': '2', 'items-INITIAL_FORMS': '2',
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+            'items-0-id': existing_items[0].pk,
+            'items-0-menu_item': existing_items[0].menu_item.pk,
+            'items-0-quantity': '', # Invalid
+            'items-0-unit_price': '10.00',
+            'items-1-id': existing_items[1].pk,
+            'items-1-menu_item': existing_items[1].menu_item.pk,
+            'items-1-quantity': '1',
+            'items-1-unit_price': '10.00',
+        }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 200) # Re-render
+        self.assertTemplateUsed(response, 'documents/order_form.html')
+        self.assertTrue(response.context['item_formset'].errors)
+
+    def test_order_update_view_post_not_editable_status(self):
+        """Test POST to update view for non-editable order redirects."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:order_update', args=[self.order_completed.pk]) # COMPLETED order
+        original_title = self.order_completed.title
+        post_data = { 'client': self.order_completed.client.pk, 'title': 'Attempt Update Completed Order' }
+        response = self.client.post(update_url, post_data)
+        self.assertEqual(response.status_code, 302) # Redirect away
+        detail_url = reverse('documents:order_detail', args=[self.order_completed.pk])
+        self.assertRedirects(response, detail_url)
+        # Verify original data didn't change
+        self.order_completed.refresh_from_db()
+        self.assertEqual(self.order_completed.title, original_title)
+
+    
+
+    
+
+    
+    
+
+    
 
 
 

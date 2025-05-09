@@ -9,14 +9,21 @@
     <h1 class="h2">Order {{ order.order_number|default:"Draft_ORD" }}</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
+        {# --- Add this Edit button conditionally --- #}
+        {# Define editable statuses (could also pass this from view) #}
+        {% if order.status == 'CONFIRMED' or order.status == 'IN_PROGRESS' or order.status == 'PENDING' %}
+        <a href="{% url 'documents:order_update' order.pk %}" class="btn btn-sm btn-outline-primary">Edit Order</a>
+        {% endif %}
+        {# --- End Add --- #}
+
+        {# Keep existing buttons #}
         <a href="{{ order.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
-        {# Add "Create Invoice from Order" button - check status #}
-        {% if order.status in "CONFIRMED,IN_PROGRESS,COMPLETED" and not order.invoices.exists %} {# Assuming OrderStatus enum available or use direct strings #}
+        {% if order.status in "CONFIRMED,IN_PROGRESS,COMPLETED" and not order.invoices.exists %}
           <a href="{% url 'documents:order_create_invoice' order.pk %}" class="btn btn-sm btn-outline-success">Create Invoice</a>
         {% elif order.invoices.exists %}
+          {# Maybe link to existing invoices? #}
           <span class="btn btn-sm btn-outline-secondary disabled">Invoice(s) Exist</span>
         {% endif %}
-        {# Add other actions later e.g., Print Delivery Order #}
       </div>
     </div>
   </div>

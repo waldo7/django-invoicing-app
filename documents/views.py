@@ -693,3 +693,50 @@ def order_create_view(request):
     }
     # We need to create this template file next
     return render(request, 'documents/order_form.html', context)
+
+
+@login_required
+@transaction.atomic
+def order_update_view(request, pk):
+    """
+    View to handle editing an existing Order and its line items.
+    Only allows editing if the order is in a suitable status (e.g., not completed/cancelled).
+    """
+    order = get_object_or_404(Order.objects.select_related('client'), pk=pk)
+    page_title = f"Edit Order {order.order_number or 'Draft_ORD'}" # Use order_number if available
+
+    # Define statuses that are NOT editable
+    non_editable_statuses = [Order.OrderStatus.COMPLETED, Order.OrderStatus.CANCELLED]
+
+    if order.status in non_editable_statuses:
+        messages.error(request, f"Order cannot be edited when status is '{order.get_status_display()}'.")
+        return redirect(reverse('documents:order_detail', args=[order.pk]))
+
+    if request.method == 'POST':
+        form = OrderForm(request.POST, instance=order)
+        # Remember the prefix used when rendering the formset
+        item_formset = OrderItemFormSet(request.POST, instance=order, prefix='items')
+
+        if form.is_valid() and item_formset.is_valid():
+            form.save() # Saves changes to the main order instance
+            item_formset.save() # Saves changes to items (adds new, updates existing, deletes marked)
+
+            messages.success(request, f"Order {order.order_number} updated successfully.")
+            # Redirect to the detail page of the updated order
+            return redirect(reverse('documents:order_detail', args=[order.pk]))
+        else:
+            # If forms are not valid, display errors
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        # Populate forms with existing instance data
+        form = OrderForm(instance=order)
+        item_formset = OrderItemFormSet(instance=order, prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+        'order': order, # Pass order for context
+    }
+    # Reuse the create template
+    return render(request, 'documents/order_form.html', context)
