@@ -10,7 +10,11 @@ from django import forms
 
 
 # Create your tests here.
-from .forms import QuotationForm, QuotationItemFormSet, InvoiceForm, InvoiceItemFormSet
+from .forms import (
+    QuotationForm, QuotationItemFormSet, 
+    InvoiceForm, InvoiceItemFormSet,
+    OrderForm, OrderItemFormSet
+)
 
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
@@ -2210,7 +2214,118 @@ class DocumentViewTests(TestCase):
         self.inv1.refresh_from_db()
         self.assertEqual(self.inv1.title, original_title) # Title should not be updated
 
+    def test_order_create_view_get_logged_out_redirect(self):
+        """Test GET to order create view when logged out redirects."""
+        create_url = reverse('documents:order_create')
+        response = self.client.get(create_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={create_url}")
 
+    def test_order_create_view_get_logged_in(self):
+        """Test GET to order create view when logged in shows the form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        response = self.client.get(reverse('documents:order_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/order_form.html') # Check correct template
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertIsInstance(response.context['form'], OrderForm) # Check correct form
+        self.assertIsInstance(response.context['item_formset'], forms.BaseInlineFormSet) # Check formset type
+        self.assertContains(response, "Create New Order/Event")
+
+    def test_order_create_view_post_valid_data(self):
+        """Test POST to create view with valid data creates order and items."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:order_create')
+        event_date_str = date(2025, 11, 15).strftime('%Y-%m-%d') # Format date for POST
+
+        # Prepare POST data (using cls.client_obj, cls.menu_item1 from setUpTestData)
+        order_data = {
+            'client': self.client_obj.pk,
+            'title': 'New Test Order via Form',
+            'event_date': event_date_str,
+            'discount_type': DiscountType.NONE.value,
+            'discount_value': '0.00',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '1', # Submitting one item form
+            'items-INITIAL_FORMS': '0',
+            'items-MIN_NUM_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-description': 'Order Item Desc A',
+            'items-0-quantity': '4.00',
+            'items-0-unit_price': '25.00', # Use the price from menu_item1
+            'items-0-grouping_label': '',
+        }
+        post_data = {**order_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+
+        # Check for redirect after successful creation
+        new_order = Order.objects.filter(title='New Test Order via Form').order_by('-created_at').first()
+        self.assertIsNotNone(new_order, "Order should have been created.")
+        # Check redirect (status code 302) - include form errors in message if fails
+        error_message_detail = ""
+        if response.status_code != 302 and response.context:
+            form_errors = response.context.get('form').errors if hasattr(response.context.get('form'), 'errors') else 'N/A'
+            item_formset_errors = response.context.get('item_formset').errors if hasattr(response.context.get('item_formset'), 'errors') else 'N/A'
+            error_message_detail = f" Form errors: {form_errors}, Item formset errors: {item_formset_errors}"
+        self.assertEqual(response.status_code, 302, f"Expected redirect (302), got {response.status_code}.{error_message_detail}")
+
+        # Verify created order details
+        self.assertEqual(new_order.client, self.client_obj)
+        self.assertEqual(new_order.status, Order.OrderStatus.CONFIRMED) # Check default status
+        self.assertEqual(new_order.items.count(), 1)
+
+        # Check item details
+        item_a = new_order.items.first()
+        self.assertEqual(item_a.menu_item, self.menu_item1)
+        self.assertEqual(item_a.quantity, Decimal('4.00'))
+        self.assertEqual(item_a.unit_price, Decimal('25.00'))
+
+        # Check redirect target
+        detail_url = reverse('documents:order_detail', args=[new_order.pk])
+        self.assertRedirects(response, detail_url)
+
+    def test_order_create_view_post_invalid_main_form(self):
+        """Test POST with invalid main form data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:order_create')
+        # Invalid: Missing client
+        order_data = {'title': 'Invalid Order'}
+        item_formset_data = { # Need valid management form
+            'items-TOTAL_FORMS': '0', 'items-INITIAL_FORMS': '0',
+            'items-MIN_NUM_FORMS': '0', 'items-MAX_NUM_FORMS': '1000',
+        }
+        post_data = {**order_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200) # Re-renders form
+        self.assertTemplateUsed(response, 'documents/order_form.html')
+        self.assertTrue(response.context['form'].errors) # Check for errors
+
+    def test_order_create_view_post_invalid_item_formset(self):
+        """Test POST with invalid item formset data re-renders form with errors."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        create_url = reverse('documents:order_create')
+        order_data = {
+            'client': self.client_obj.pk,
+            'title': 'Order with Invalid Item',
+        }
+        item_formset_data = {
+            'items-TOTAL_FORMS': '1', 'items-INITIAL_FORMS': '0',
+            'items-MAX_NUM_FORMS': '1000',
+            'items-0-menu_item': self.menu_item1.pk,
+            'items-0-quantity': '', # Invalid: missing quantity
+            'items-0-unit_price': '', # Invalid: missing price
+        }
+        post_data = {**order_data, **item_formset_data}
+
+        response = self.client.post(create_url, post_data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/order_form.html')
+        self.assertTrue(response.context['item_formset'].errors or response.context['item_formset'].non_form_errors())
 
 
 

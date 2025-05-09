@@ -17,8 +17,12 @@ except ImportError:
     print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
-from .models import Order, MenuItem, Quotation, Setting, Invoice, Client
-from .forms import QuotationForm, QuotationItemFormSet, InvoiceForm, InvoiceItemFormSet
+from .models import Order, MenuItem, Quotation, Setting, Invoice, Client, OrderItem
+from .forms import (
+    QuotationForm, QuotationItemFormSet, 
+    InvoiceForm, InvoiceItemFormSet,
+    OrderForm, OrderItemFormSet
+)
 
 
 # Create your views here.
@@ -649,3 +653,43 @@ def invoice_update_view(request, pk):
     }
     # Reuse the same template as the create view
     return render(request, 'documents/invoice_form.html', context)
+
+
+@login_required
+@transaction.atomic
+def order_create_view(request):
+    """
+    View to handle creating a new Order with its line items.
+    """
+    page_title = "Create New Order/Event"
+
+    if request.method == 'POST':
+        form = OrderForm(request.POST)
+        # Use 'items' prefix consistent with other formsets
+        item_formset = OrderItemFormSet(request.POST, prefix='items')
+
+        if form.is_valid() and item_formset.is_valid():
+            order = form.save(commit=False)
+            # Status defaults to CONFIRMED in the model, no need to set here explicitly
+            order.save() # Save Order header (triggers auto-numbering)
+
+            # Link formset to the saved order and save items
+            item_formset.instance = order
+            item_formset.save()
+
+            messages.success(request, f"Order {order.order_number} created successfully.")
+            # Redirect to the detail page of the newly created order
+            return redirect(reverse('documents:order_detail', args=[order.pk]))
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        form = OrderForm()
+        item_formset = OrderItemFormSet(prefix='items')
+
+    context = {
+        'form': form,
+        'item_formset': item_formset,
+        'page_title': page_title,
+    }
+    # We need to create this template file next
+    return render(request, 'documents/order_form.html', context)
