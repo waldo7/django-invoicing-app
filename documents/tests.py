@@ -19,7 +19,8 @@ from .forms import (
 
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
-    Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem 
+    Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem,
+    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus 
 )
 
 
@@ -2616,9 +2617,160 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, "Please correct the errors below.")
 
     
+class DeliveryOrderModelTests(TestCase):
 
+    @classmethod
+    def setUpTestData(cls):
+        cls.client = Client.objects.create(name="Client for DOs")
+        cls.order = Order.objects.create(
+            client=cls.client,
+            event_date=date(2025, 12, 25),
+            status=Order.OrderStatus.CONFIRMED
+        )
+        # Manually set order_number for predictability in DO __str__ tests if needed now,
+        # or rely on signal if already implemented and tested
+        cls.order.order_number = "ORD-SETUP-1"
+        cls.order.save(update_fields=['order_number'])
+
+
+    def test_delivery_order_creation(self):
+        """Test creating a basic Delivery Order record."""
+        delivery_date = date(2025, 12, 24)
+        do = DeliveryOrder.objects.create(
+            order=self.order,
+            delivery_date=delivery_date,
+            recipient_name="John Doe Receiver",
+            delivery_address_override="123 Festive Lane, North Pole",
+            notes="Deliver by sleigh."
+            # status defaults to PLANNED
+        )
+
+        self.assertEqual(do.order, self.order)
+        self.assertEqual(do.delivery_date, delivery_date)
+        self.assertEqual(do.status, DeliveryOrderStatus.PLANNED) # Check default
+        self.assertEqual(do.recipient_name, "John Doe Receiver")
+        self.assertEqual(do.delivery_address_override, "123 Festive Lane, North Pole")
+        self.assertEqual(do.notes, "Deliver by sleigh.")
+        # We'll test do_number generation separately if we add a signal
+
+    def test_delivery_order_str_representation(self):
+        """Test the string representation of DeliveryOrder."""
+        do = DeliveryOrder.objects.create(order=self.order, delivery_date=date(2025, 12, 20))
+        do.refresh_from_db() # Refresh to get the generated do_number
+        # Relies on Order having an order_number (set in setUpTestData)
+        # and DO not having do_number yet (will be 'Draft DO')
+        expected_number = f"DO-{do.created_at.year}-{do.pk}"
+        self.assertEqual(do.do_number, expected_number) # Verify number itself
+        expected_str = f"Delivery Order {do.do_number} for Order {self.order.order_number or self.order.pk}"
+        self.assertEqual(str(do), expected_str)
     
+
+    def test_do_number_auto_generation(self):
+        """Test that do_number is generated correctly on first save."""
+        do = DeliveryOrder.objects.create(order=self.order, delivery_date=date(2025, 12, 1))
+        # Refresh from DB to get the value set by the signal
+        do.refresh_from_db()
+
+        # Check the format
+        expected_number = f"DO-{do.created_at.year}-{do.pk}"
+        self.assertIsNotNone(do.do_number)
+        self.assertEqual(do.do_number, expected_number)
     
+class DeliveryOrderItemModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        client = Client.objects.create(name="Client for DO Items")
+        menu_item = MenuItem.objects.create(name="DO Test Item", unit_price=Decimal("10.00"))
+        cls.order = Order.objects.create(
+            client=client,
+            event_date=date(2025, 11, 1),
+            status=Order.OrderStatus.CONFIRMED
+        )
+        cls.order.order_number = "ORD-DO-ITEM-1" # Set for __str__ predictability
+        cls.order.save(update_fields=['order_number'])
+
+        cls.order_item = OrderItem.objects.create(
+            order=cls.order,
+            menu_item=menu_item,
+            quantity=Decimal("10.00"),
+            unit_price=Decimal("10.00")
+        )
+        cls.delivery_order = DeliveryOrder.objects.create(
+            order=cls.order,
+            delivery_date=date(2025, 11, 1)
+        )
+        # If DO number is auto-generated, might need refresh here for __str__ tests
+        cls.delivery_order.refresh_from_db()
+
+
+    def test_delivery_order_item_creation(self):
+        """Test creating a Delivery Order Item record."""
+        do_item = DeliveryOrderItem.objects.create(
+            delivery_order=self.delivery_order,
+            order_item=self.order_item,
+            quantity_delivered=Decimal("5.00"),
+            notes="Half delivered."
+        )
+        self.assertEqual(do_item.delivery_order, self.delivery_order)
+        self.assertEqual(do_item.order_item, self.order_item)
+        self.assertEqual(do_item.quantity_delivered, Decimal("5.00"))
+        self.assertEqual(do_item.notes, "Half delivered.")
+        
+
+    def test_quantity_delivered_validation(self):
+        """Test that quantity_delivered must be positive."""
+        with self.assertRaises(ValidationError):
+            item_zero = DeliveryOrderItem(
+                delivery_order=self.delivery_order,
+                order_item=self.order_item,
+                quantity_delivered=Decimal("0.00")
+            )
+            item_zero.full_clean()
+
+        with self.assertRaises(ValidationError):
+            item_neg = DeliveryOrderItem(
+                delivery_order=self.delivery_order,
+                order_item=self.order_item,
+                quantity_delivered=Decimal("-1.00")
+            )
+            item_neg.full_clean()
+
+        # Test valid amount
+        try:
+            item_ok = DeliveryOrderItem(
+                delivery_order=self.delivery_order,
+                order_item=self.order_item,
+                quantity_delivered=Decimal("0.01")
+            )
+            item_ok.full_clean() # Should not raise
+        except ValidationError as e:
+            self.fail(f"Positive quantity_delivered validation failed unexpectedly: {e}")
+
+    def test_delivery_order_item_str_representation(self):
+        """Test the string representation."""
+        do_item = DeliveryOrderItem.objects.create(
+            delivery_order=self.delivery_order,
+            order_item=self.order_item,
+            quantity_delivered=Decimal("3")
+        )
+        # Assumes delivery_order __str__ returns 'Draft DO' or its actual number if generated
+        # and order_item.menu_item.name is 'DO Test Item'
+        # If self.delivery_order.do_number is None, __str__ will show "DO PK ..."
+        expected_do_num_part = self.delivery_order.do_number if self.delivery_order.do_number else f"DO PK {self.delivery_order.pk}"
+        expected_str = f"3 x DO Test Item on {expected_do_num_part}"
+        self.assertEqual(str(do_item), expected_str)
+        expected_str = f"3 x DO Test Item on {self.delivery_order.do_number}"
+        self.assertEqual(str(do_item), expected_str)
+
+
+
+
+
+
+
+
+
 
     
 

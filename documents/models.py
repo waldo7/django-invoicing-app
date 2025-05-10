@@ -926,6 +926,91 @@ class Payment(models.Model):
                 raise ValidationError("Cannot find the associated Invoice.")
             
 
+class DeliveryOrderStatus(models.TextChoices):
+    PLANNED = 'PLANNED', 'Planned'
+    DISPATCHED = 'DISPATCHED', 'Dispatched'
+    DELIVERED = 'DELIVERED', 'Delivered'
+    CANCELLED = 'CANCELLED', 'Cancelled'
+
+
+class DeliveryOrder(models.Model):
+    """
+    Represents a delivery of items for a specific Order.
+    An Order can have multiple DeliveryOrders (e.g., for phased delivery).
+    """
+    do_number = models.CharField(
+        max_length=50, unique=True,
+        blank=True, null=True, # For auto-generation later
+        editable=False
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE, # If Order is deleted, DOs are deleted
+        related_name='delivery_orders'
+    )
+    delivery_date = models.DateField(help_text="Date of scheduled/actual delivery")
+    status = models.CharField(
+        max_length=15,
+        choices=DeliveryOrderStatus.choices,
+        default=DeliveryOrderStatus.PLANNED
+    )
+    recipient_name = models.CharField(max_length=200, blank=True, default='', help_text="Name of person receiving the delivery, if different from client contact.")
+    # Delivery address can default from Order.delivery_address but be overrideable.
+    # For now, we'll just store it. Logic for defaulting can be added in forms/views.
+    delivery_address_override = models.TextField(blank=True, default='', help_text="Specific delivery address for this DO, if different from Order's address.")
+    notes = models.TextField(blank=True, default='', help_text="Internal notes or instructions for this delivery.")
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        num = self.do_number if self.do_number else "Draft DO"
+        return f"Delivery Order {num} for Order {self.order.order_number or self.order.pk}"
+
+    class Meta:
+        ordering = ['-delivery_date', '-created_at']
+        verbose_name = "Delivery Order"
+        verbose_name_plural = "Delivery Orders"
+
+
+class DeliveryOrderItem(models.Model):
+    """
+    Represents a specific item and quantity being delivered in a DeliveryOrder.
+    Links back to an OrderItem to track against the original order.
+    """
+    delivery_order = models.ForeignKey(
+        DeliveryOrder,
+        on_delete=models.CASCADE,
+        related_name='items'
+    )
+    # Crucial link: Which item from the main Order is this delivery for?
+    order_item = models.ForeignKey(
+        OrderItem,
+        on_delete=models.PROTECT, # Don't delete an OrderItem if it's on a DO
+        related_name='delivered_items'
+    )
+    # Quantity being delivered *in this specific DO*
+    quantity_delivered = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.01'))] # Must deliver a positive quantity
+    )
+    notes = models.TextField(blank=True, default='', help_text="Notes specific to this delivered item (e.g., substitution).")
+
+    # No unit_price or description here, as those are fixed on the OrderItem.
+    # The DO is just about quantity delivered.
+
+    def __str__(self):
+        do_num = self.delivery_order.do_number if self.delivery_order_id and self.delivery_order.do_number else f"DO PK {self.delivery_order_id}"
+        return f"{self.quantity_delivered} x {self.order_item.menu_item.name} on {do_num}"
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Delivery Order Item"
+        verbose_name_plural = "Delivery Order Items"
+
+    # Potential future validation in clean():
+    # Ensure quantity_delivered <= order_item.quantity - sum(other delivered_items for this order_item)
 
 
 

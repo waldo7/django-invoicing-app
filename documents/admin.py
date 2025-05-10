@@ -6,7 +6,8 @@ from django.urls import reverse
 # Register your models here.
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, 
-    Setting, Payment, Order, OrderItem
+    Setting, Payment, Order, OrderItem, 
+    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
 )
 
 
@@ -474,12 +475,42 @@ class OrderAdmin(admin.ModelAdmin):
         # Use the SAME JavaScript file as Quote/Invoice inlines
         js = ('documents/js/admin_inline_autofill.js',)
 
+ 
+class DeliveryOrderItemInline(admin.TabularInline):
+    model = DeliveryOrderItem
+    extra = 1 # Show one empty row for adding items by default
+    fields = ('order_item', 'quantity_delivered', 'notes')
+    # autocomplete_fields = ['order_item'] # We can consider this later for usability
+    # Note: The 'order_item' dropdown will currently show ALL OrderItems from ALL Orders.
+    # We will address filtering this dropdown or adding validation in a future step.
 
 
+@admin.register(DeliveryOrder)
+class DeliveryOrderAdmin(admin.ModelAdmin):
+    list_display = ('do_number', 'order_link', 'delivery_date', 'status', 'recipient_name', 'created_at')
+    list_filter = ('status', 'delivery_date', 'order__client')
+    search_fields = ('do_number', 'order__order_number', 'order__client__name', 'recipient_name', 'notes')
+    list_select_related = ('order', 'order__client') # Performance optimization for list view
+    date_hierarchy = 'delivery_date' # Adds date navigation
+    readonly_fields = ('do_number', 'created_at', 'updated_at') # do_number will be auto-generated
 
+    fieldsets = (
+        (None, {'fields': ('order', 'delivery_date', 'status')}),
+        ('Recipient & Address', {'fields': ('recipient_name', 'delivery_address_override')}),
+        ('Notes', {'fields': ('notes',)}),
+        ('System Info', {
+            'fields': ('do_number', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    inlines = [DeliveryOrderItemInline] # Embed the DeliveryOrderItem editor
 
-
-
-
-
-
+    def order_link(self, obj):
+        """Creates a clickable link to the parent Order in the admin."""
+        if obj.order:
+            # Ensure you have imported 'reverse' and 'format_html'
+            link = reverse("admin:documents_order_change", args=[obj.order.pk])
+            return format_html('<a href="{}">{}</a>', link, obj.order.order_number or f"Order PK {obj.order.pk}")
+        return None
+    order_link.short_description = 'Parent Order' # Column header for the link
+    order_link.admin_order_field = 'order__order_number' # Allow sorting by this field

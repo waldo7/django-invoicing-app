@@ -1,9 +1,13 @@
 from django.db.models.signals import post_save, post_delete 
 from django.dispatch import receiver
+from django.utils import timezone # Add this import
 from django.apps import apps
 from decimal import Decimal
-from .models import Quotation, Payment, Invoice, Order 
-from django.utils import timezone # Add this import
+
+from .models import (
+    Quotation, Payment, Invoice, Order, DeliveryOrder
+)
+
 
 
 
@@ -101,7 +105,23 @@ def generate_order_number(sender, instance, created, **kwargs):
         instance.save(update_fields=['order_number'])
 
 
-
+@receiver(post_save, sender=DeliveryOrder)
+def generate_do_number(sender, instance, created, **kwargs):
+    """
+    Generate a delivery order number automatically after a DeliveryOrder is first created.
+    Format: DO-YYYY-ID
+    """
+    if created and not instance.do_number:
+        # Ensure created_at is available (should be due to auto_now_add)
+        # Default to current year if created_at isn't set yet (unlikely but safe)
+        year = instance.created_at.year if instance.created_at else timezone.now().year
+        pk = instance.pk
+        # Format the number
+        number = f"DO-{year}-{pk}"
+        # Assign it to the instance
+        instance.do_number = number
+        # Save the instance again, ONLY updating this field
+        instance.save(update_fields=['do_number'])
 
 
 
