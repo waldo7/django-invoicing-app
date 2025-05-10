@@ -68,14 +68,14 @@ def revise_quotation(request, pk):
         # Add a success message for the user
         messages.success(request, f"Successfully created revision V{new_revision.version} ({new_revision.quotation_number}) from {original_quote.quotation_number}. You are now editing the new draft.")
         # Redirect the user to the admin change page for the NEW revision
-        admin_url = reverse('admin:documents_quotation_change', args=[new_revision.pk])
-        return redirect(admin_url)
+        redirect_url = reverse('documents:quotation_detail', args=[new_revision.pk])
+        return redirect(redirect_url)
     else:
         # Add a warning message if revision couldn't be created
         messages.warning(request, f"Could not revise Quotation {original_quote.quotation_number}. Status might be Draft or already Superseded.")
         # Redirect back to the original quote's change page
-        admin_url = reverse('admin:documents_quotation_change', args=[original_quote.pk])
-        return redirect(admin_url)
+        redirect_url = reverse('documents:quotation_detail', args=[original_quote.pk])
+        return redirect(redirect_url)
   
 
 @staff_member_required
@@ -101,7 +101,7 @@ def finalize_quotation(request, pk):
         )
 
     # Redirect back to the admin change page for this quotation
-    redirect_url = reverse('admin:documents_quotation_change', args=[quotation.pk])
+    redirect_url = reverse('documents:quotation_detail', args=[quotation.pk])
     return redirect(redirect_url)
 
 
@@ -127,7 +127,7 @@ def revert_quotation_to_draft(request, pk):
         )
 
     # Redirect back to the admin change page for this quotation
-    redirect_url = reverse('admin:documents_quotation_change', args=[quotation.pk])
+    redirect_url = reverse('documents:quotation_detail', args=[quotation.pk])
     return redirect(redirect_url)
 
 
@@ -155,8 +155,7 @@ def finalize_invoice(request, pk):
             f"Invoice {invoice.invoice_number} could not be finalized (status was likely not 'Draft')."
         )
 
-    # Redirect back to the admin change page for this invoice
-    redirect_url = reverse('admin:documents_invoice_change', args=[invoice.pk])
+    redirect_url = reverse('documents:invoice_detail', args=[invoice.pk])
     return redirect(redirect_url)
 
 
@@ -177,7 +176,7 @@ def create_invoice_from_order(request, pk):
             f"Successfully created draft Invoice {new_invoice.invoice_number} from Order {order.order_number}. You are now editing the new draft."
         )
         # Redirect to the change page of the new Invoice
-        redirect_url = reverse('admin:documents_invoice_change', args=[new_invoice.pk])
+        redirect_url = reverse('documents:invoice_detail', args=[new_invoice.pk])
     else:
         # Show warning message if invoice creation failed (e.g., due to order status)
         messages.warning(
@@ -185,7 +184,7 @@ def create_invoice_from_order(request, pk):
             f"Could not create invoice from Order {order.order_number}. Order status might be '{order.get_status_display()}'."
         )
         # Redirect back to the original Order's change page
-        redirect_url = reverse('admin:documents_order_change', args=[order.pk])
+        redirect_url = reverse('documents:order_detail', args=[order.pk])
 
     return redirect(redirect_url)
 
@@ -196,62 +195,39 @@ def generate_quotation_pdf(request, pk):
     View to generate and return a PDF representation of a Quotation.
     """
     if not weasyprint:
-        # Handle case where WeasyPrint failed to import
         return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
 
+    quotation = get_object_or_404(Quotation, pk=pk) # Moved outside try for redirect
+
     try:
-        quotation = get_object_or_404(Quotation, pk=pk)
         settings = Setting.get_solo()
         items = quotation.items.all()
-
         is_draft = (quotation.status == Quotation.Status.DRAFT)
 
-        # Prepare context for the template
         context = {
             'quotation': quotation,
             'items': items,
             'settings': settings,
             'is_draft': is_draft,
         }
-
-        # Render the HTML template to a string
         html_string = render_to_string('documents/pdf/quotation_pdf.html', context)
-
-        # Generate PDF using WeasyPrint
-        # base_url helps resolve relative paths for assets if needed (e.g., CSS)
-        # Using request.build_absolute_uri('/') provides the site's base URL.
         html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
         pdf_file = html.write_pdf()
 
-        # Create the HTTP response with PDF mime type
         response = HttpResponse(pdf_file, content_type='application/pdf')
-
-        # Set Content-Disposition header to suggest a filename
-        # 'inline' attempts to display PDF in browser, 'attachment' forces download
         filename = f"Quotation-{quotation.quotation_number or quotation.pk}.pdf"
         response['Content-Disposition'] = f'inline; filename="{filename}"'
-        # Alternatively, for forced download:
-        # response['Content-Disposition'] = f'attachment; filename="{filename}"'
-
         return response
 
-    except Quotation.DoesNotExist:
-        raise Http404("Quotation not found.")
     except Setting.DoesNotExist:
-         # Handle case where settings haven't been configured in admin yet
-         messages.error(request, "Application settings have not been configured in the admin.")
-         # Redirect back to where they came from or a safe place
-         # This requires getting the previous URL or redirecting to admin index
-         # For simplicity now, let's return an error response
-         return HttpResponse("Application settings not configured.", status=500)
+        messages.error(request, "Application settings are not configured. PDF cannot be generated.")
+        # Redirect to frontend quotation detail page
+        return redirect(reverse('documents:quotation_detail', args=[pk]))
     except Exception as e:
-        # Handle other potential errors during PDF generation
-        print(f"Error generating PDF for Quotation {pk}: {e}") # Log the error
+        print(f"Error generating PDF for Quotation {pk}: {e}")
         messages.error(request, f"An error occurred while generating the PDF: {e}")
-        # Redirect back to the quotation detail page
-        admin_url = reverse('admin:documents_quotation_change', args=[pk])
-        return redirect(admin_url)
-
+        # Redirect to frontend quotation detail page
+        return redirect(reverse('documents:quotation_detail', args=[pk]))
 
 @staff_member_required
 def generate_invoice_pdf(request, pk):
@@ -261,54 +237,37 @@ def generate_invoice_pdf(request, pk):
     if not weasyprint:
         return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
 
-    try:
-        invoice = get_object_or_404(Invoice, pk=pk)
-        settings = Setting.get_solo()
-        items = invoice.items.all() # Use related_name 'items'
+    invoice = get_object_or_404(Invoice, pk=pk) # Moved outside try for redirect
 
+    try:
+        settings = Setting.get_solo()
+        items = invoice.items.all()
         is_draft = (invoice.status == Invoice.Status.DRAFT)
 
-        # Prepare context for the template
         context = {
             'invoice': invoice,
             'items': items,
             'settings': settings,
             'is_draft': is_draft,
         }
-
-        # Render the HTML template to a string
-        # Make sure this matches the template file path we created
         html_string = render_to_string('documents/pdf/invoice_pdf.html', context)
-
-        # Generate PDF using WeasyPrint
         html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
         pdf_file = html.write_pdf()
 
-        # Create the HTTP response
         response = HttpResponse(pdf_file, content_type='application/pdf')
-
-        # Set filename
         filename = f"Invoice-{invoice.invoice_number or invoice.pk}.pdf"
         response['Content-Disposition'] = f'inline; filename="{filename}"'
-
         return response
 
-    except Invoice.DoesNotExist:
-        raise Http404("Invoice not found.")
     except Setting.DoesNotExist:
-         messages.error(request, "Application settings have not been configured in the admin.")
-         # Redirect back to the invoice detail page if possible
-         try:
-             admin_url = reverse('admin:documents_invoice_change', args=[pk])
-             return redirect(admin_url)
-         except: # Fallback if pk doesn't exist or other error
-             return redirect('admin:index') # Redirect to main admin page
+         messages.error(request, "Application settings are not configured. PDF cannot be generated.")
+         # Redirect to frontend invoice detail page
+         return redirect(reverse('documents:invoice_detail', args=[pk]))
     except Exception as e:
-        print(f"Error generating PDF for Invoice {pk}: {e}") # Log the error
+        print(f"Error generating PDF for Invoice {pk}: {e}")
         messages.error(request, f"An error occurred while generating the PDF: {e}")
-        # Redirect back to the invoice detail page
-        admin_url = reverse('admin:documents_invoice_change', args=[pk])
-        return redirect(admin_url)
+        # Redirect to frontend invoice detail page
+        return redirect(reverse('documents:invoice_detail', args=[pk]))
 
 
 @login_required # Ensures only logged-in users can access this view
@@ -401,7 +360,7 @@ def revert_invoice_to_draft(request, pk):
         )
 
     # Redirect back to the admin change page for this invoice
-    redirect_url = reverse('admin:documents_invoice_change', args=[invoice.pk])
+    redirect_url = reverse('documents:invoice_detail', args=[invoice.pk])
     return redirect(redirect_url)
 
 @login_required
