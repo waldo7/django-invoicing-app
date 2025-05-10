@@ -29,4 +29,5 @@ urlpatterns = [
     path('clients/', views.client_list_view, name='client_list'),
     path('client/<int:pk>/', views.client_detail_view, name='client_detail'),
     path('clients/new/', views.client_create_view, name='client_create'),
+    path('client/<int:pk>/edit/', views.client_update_view, name='client_update'),
 ]

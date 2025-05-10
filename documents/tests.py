@@ -2544,7 +2544,76 @@ class DocumentViewTests(TestCase):
         self.assertTrue(response.context['form'].errors) # Check for errors
         self.assertContains(response, "Please correct the errors below.")
 
-    
+    def test_client_update_view_get_logged_out_redirect(self):
+        """Test GET to client update view when logged out redirects."""
+        # Use client_obj created in setUpTestData
+        update_url = reverse('documents:client_update', args=[self.client_obj.pk])
+        response = self.client.get(update_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={update_url}")
+
+    def test_client_update_view_get_logged_in(self):
+        """Test GET to client update view for logged-in user loads form correctly."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:client_update', args=[self.client_obj.pk])
+        response = self.client.get(update_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/client_form.html') # Reuses create template
+        self.assertIsInstance(response.context['form'], ClientForm)
+        self.assertEqual(response.context['form'].instance, self.client_obj) # Check form bound
+        self.assertContains(response, f"Edit Client: {self.client_obj.name}")
+        # Check if an existing value from the client_obj is in the form
+        self.assertContains(response, self.client_obj.name) # Original name should be in form value
+
+    def test_client_update_view_post_valid_data(self):
+        """Test POST to update view with valid data updates client."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:client_update', args=[self.client_obj.pk])
+        original_name = self.client_obj.name
+        new_name = "Updated Client Name Via Form"
+        new_email = "updated_client@example.com"
+
+        client_data = {
+            'name': new_name,
+            'address': self.client_obj.address, # Keep existing address or update
+            'email': new_email,
+            'phone': '555-9999', # New phone
+            'tax_id': self.client_obj.tax_id # Keep existing tax_id or update
+        }
+        response = self.client.post(update_url, client_data)
+
+        # Check redirect after successful update
+        detail_url = reverse('documents:client_detail', args=[self.client_obj.pk])
+        self.assertRedirects(response, detail_url, status_code=302, target_status_code=200)
+
+        # Verify changes saved
+        self.client_obj.refresh_from_db()
+        self.assertEqual(self.client_obj.name, new_name)
+        self.assertEqual(self.client_obj.email, new_email)
+        self.assertEqual(self.client_obj.phone, '555-9999')
+
+        # Test success message (requires fetching the redirected page)
+        # response_redirected = self.client.get(detail_url)
+        # self.assertContains(response_redirected, f"Client '{new_name}' updated successfully.")
+
+
+    def test_client_update_view_post_invalid_data(self):
+        """Test POST to update view with invalid data re-renders form."""
+        self.client.login(email=self.test_user_email, password=self.test_user_password)
+        update_url = reverse('documents:client_update', args=[self.client_obj.pk])
+        # Invalid: Blank name
+        client_data = {
+            'name': '', # Invalid
+            'email': 'stillvalid@example.com'
+        }
+        response = self.client.post(update_url, client_data)
+
+        self.assertEqual(response.status_code, 200) # Re-renders form
+        self.assertTemplateUsed(response, 'documents/client_form.html')
+        self.assertTrue(response.context['form'].errors) # Check for errors
+        self.assertContains(response, "Please correct the errors below.")
 
     
 

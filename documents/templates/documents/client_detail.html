@@ -8,7 +8,14 @@
     <h1 class="h2">Client: {{ client.name }}</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
+        {# --- Add this Edit button --- #}
+        <a href="{% url 'documents:client_update' client.pk %}" class="btn btn-sm btn-outline-primary">Edit Client</a>
+        {# --- End Add --- #}
+
+        {# Keep existing "Edit in Admin" button #}
+        {% if user.is_staff %}
         <a href="{{ client.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {% endif %}
       </div>
     </div>
   </div>

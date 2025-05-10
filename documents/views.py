@@ -770,7 +770,36 @@ def client_create_view(request):
     return render(request, 'documents/client_form.html', context)
 
 
+@login_required
+@transaction.atomic # Good practice for views that save data
+def client_update_view(request, pk):
+    """
+    View to handle editing an existing Client.
+    """
+    client = get_object_or_404(Client, pk=pk)
+    page_title = f"Edit Client: {client.name}"
 
+    if request.method == 'POST':
+        # Pass instance to pre-fill the form and to update this specific client
+        form = ClientForm(request.POST, instance=client)
+        if form.is_valid():
+            form.save() # Saves changes to the existing client instance
+            messages.success(request, f"Client '{client.name}' updated successfully.")
+            # Redirect to the detail page of the updated client
+            return redirect(reverse('documents:client_detail', args=[client.pk]))
+        else:
+            messages.error(request, "Please correct the errors below.")
+    else: # GET request
+        # Populate form with existing instance data
+        form = ClientForm(instance=client)
+
+    context = {
+        'form': form,
+        'page_title': page_title,
+        'client': client, # Pass client for context if template uses it (e.g., in breadcrumbs)
+    }
+    # Reuse the same template as the create view
+    return render(request, 'documents/client_form.html', context)
 
 
 
