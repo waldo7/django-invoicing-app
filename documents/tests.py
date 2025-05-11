@@ -2680,40 +2680,51 @@ class DeliveryOrderItemModelTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        client = Client.objects.create(name="Client for DO Items")
-        menu_item = MenuItem.objects.create(name="DO Test Item", unit_price=Decimal("10.00"))
-        cls.order = Order.objects.create(
-            client=client,
-            event_date=date(2025, 11, 1),
-            status=Order.OrderStatus.CONFIRMED
-        )
-        cls.order.order_number = "ORD-DO-ITEM-1" # Set for __str__ predictability
-        cls.order.save(update_fields=['order_number'])
+        client = Client.objects.create(name="Client for DO Validation")
+        menu_item_A = MenuItem.objects.create(name="DO Valid Item A", unit_price=Decimal("10.00"))
+        menu_item_B = MenuItem.objects.create(name="DO Valid Item B", unit_price=Decimal("20.00"))
 
-        cls.order_item = OrderItem.objects.create(
-            order=cls.order,
-            menu_item=menu_item,
-            quantity=Decimal("10.00"),
-            unit_price=Decimal("10.00")
+        # Order 1 with items
+        cls.order1 = Order.objects.create(
+            client=client, event_date=date(2025, 11, 1), status=Order.OrderStatus.CONFIRMED
         )
-        cls.delivery_order = DeliveryOrder.objects.create(
-            order=cls.order,
+        cls.order1.order_number = "ORD-DOV-1"; cls.order1.save() # Set for clarity
+        cls.order_item1_on_order1 = OrderItem.objects.create(
+            order=cls.order1, menu_item=menu_item_A, quantity=Decimal("10.00"), unit_price=Decimal("10.00")
+        )
+        cls.order_item2_on_order1 = OrderItem.objects.create(
+            order=cls.order1, menu_item=menu_item_B, quantity=Decimal("5.00"), unit_price=Decimal("20.00")
+        )
+
+        # Order 2 with an item (to test incorrect assignment)
+        cls.order2 = Order.objects.create(
+            client=client, event_date=date(2025, 11, 5), status=Order.OrderStatus.CONFIRMED
+        )
+        cls.order2.order_number = "ORD-DOV-2"; cls.order2.save()
+        cls.order_item_on_order2 = OrderItem.objects.create(
+            order=cls.order2, menu_item=menu_item_A, quantity=Decimal("3.00"), unit_price=Decimal("10.00")
+        )
+
+        # Delivery Order linked to Order 1
+        cls.delivery_order_for_order1 = DeliveryOrder.objects.create(
+            order=cls.order1,
             delivery_date=date(2025, 11, 1)
         )
-        # If DO number is auto-generated, might need refresh here for __str__ tests
-        cls.delivery_order.refresh_from_db()
+        cls.delivery_order_for_order1.refresh_from_db() # Get DO number if auto-generated
 
 
     def test_delivery_order_item_creation(self):
         """Test creating a Delivery Order Item record."""
         do_item = DeliveryOrderItem.objects.create(
-            delivery_order=self.delivery_order,
-            order_item=self.order_item,
+            delivery_order=self.delivery_order_for_order1,
+            order_item=self.order_item1_on_order1, # This is the correct OrderItem from setUpTestData
             quantity_delivered=Decimal("5.00"),
             notes="Half delivered."
         )
-        self.assertEqual(do_item.delivery_order, self.delivery_order)
-        self.assertEqual(do_item.order_item, self.order_item)
+        self.assertEqual(do_item.delivery_order, self.delivery_order_for_order1)
+        # --- Correct this line ---
+        self.assertEqual(do_item.order_item, self.order_item1_on_order1)
+        # --- End Correction ---
         self.assertEqual(do_item.quantity_delivered, Decimal("5.00"))
         self.assertEqual(do_item.notes, "Half delivered.")
         
@@ -2722,16 +2733,16 @@ class DeliveryOrderItemModelTests(TestCase):
         """Test that quantity_delivered must be positive."""
         with self.assertRaises(ValidationError):
             item_zero = DeliveryOrderItem(
-                delivery_order=self.delivery_order,
-                order_item=self.order_item,
+                delivery_order=self.delivery_order_for_order1,
+                order_item=self.order_item1_on_order1,   
                 quantity_delivered=Decimal("0.00")
             )
             item_zero.full_clean()
 
         with self.assertRaises(ValidationError):
             item_neg = DeliveryOrderItem(
-                delivery_order=self.delivery_order,
-                order_item=self.order_item,
+                delivery_order=self.delivery_order_for_order1,
+                order_item=self.order_item1_on_order1,    
                 quantity_delivered=Decimal("-1.00")
             )
             item_neg.full_clean()
@@ -2739,8 +2750,8 @@ class DeliveryOrderItemModelTests(TestCase):
         # Test valid amount
         try:
             item_ok = DeliveryOrderItem(
-                delivery_order=self.delivery_order,
-                order_item=self.order_item,
+                delivery_order=self.delivery_order_for_order1,
+                order_item=self.order_item1_on_order1,  
                 quantity_delivered=Decimal("0.01")
             )
             item_ok.full_clean() # Should not raise
@@ -2748,22 +2759,75 @@ class DeliveryOrderItemModelTests(TestCase):
             self.fail(f"Positive quantity_delivered validation failed unexpectedly: {e}")
 
     def test_delivery_order_item_str_representation(self):
-        """Test the string representation."""
-        do_item = DeliveryOrderItem.objects.create(
-            delivery_order=self.delivery_order,
-            order_item=self.order_item,
-            quantity_delivered=Decimal("3")
+            """Test the string representation."""
+            do_item = DeliveryOrderItem.objects.create(
+                delivery_order=self.delivery_order_for_order1, # <-- Use correct name
+                order_item=self.order_item1_on_order1,       # <-- Use correct name
+                quantity_delivered=Decimal("3")
+            )
+            # self.delivery_order_for_order1 was refreshed in setUpTestData so do_number is available
+            expected_str = f"3 x {self.order_item1_on_order1.menu_item.name} on {self.delivery_order_for_order1.do_number}"
+            self.assertEqual(str(do_item), expected_str)
+
+    def test_do_item_validation_order_item_matches_parent_order(self):
+        """
+        Test that selected OrderItem must belong to the DeliveryOrder's parent Order.
+        """
+        # Valid case: OrderItem belongs to the DeliveryOrder's parent Order
+        valid_do_item = DeliveryOrderItem(
+            delivery_order=self.delivery_order_for_order1,
+            order_item=self.order_item1_on_order1, # Belongs to order1
+            quantity_delivered=Decimal("1.00")
         )
-        # Assumes delivery_order __str__ returns 'Draft DO' or its actual number if generated
-        # and order_item.menu_item.name is 'DO Test Item'
-        # If self.delivery_order.do_number is None, __str__ will show "DO PK ..."
-        expected_do_num_part = self.delivery_order.do_number if self.delivery_order.do_number else f"DO PK {self.delivery_order.pk}"
-        expected_str = f"3 x DO Test Item on {expected_do_num_part}"
-        self.assertEqual(str(do_item), expected_str)
-        expected_str = f"3 x DO Test Item on {self.delivery_order.do_number}"
-        self.assertEqual(str(do_item), expected_str)
+        try:
+            valid_do_item.full_clean() # Should not raise ValidationError
+        except ValidationError as e:
+            self.fail(f"Validation failed unexpectedly for correct OrderItem: {e.message_dict}")
 
+        # Invalid case: OrderItem belongs to a different Order
+        invalid_do_item = DeliveryOrderItem(
+            delivery_order=self.delivery_order_for_order1, # Belongs to order1
+            order_item=self.order_item_on_order2,      # Belongs to order2
+            quantity_delivered=Decimal("1.00")
+        )
+        with self.assertRaisesRegex(ValidationError, "This item does not belong to the parent Order"):
+            invalid_do_item.full_clean()
 
+    def test_do_item_validation_quantity_delivered_not_exceeds_ordered(self):
+        """
+        Test that quantity_delivered does not exceed OrderItem.quantity.
+        order_item1_on_order1 has quantity 10.
+        """
+        # Valid case: Quantity less than ordered
+        do_item_less = DeliveryOrderItem(
+            delivery_order=self.delivery_order_for_order1,
+            order_item=self.order_item1_on_order1,
+            quantity_delivered=Decimal("5.00")
+        )
+        try:
+            do_item_less.full_clean() # Should not raise
+        except ValidationError as e:
+            self.fail(f"Validation for quantity_delivered < ordered failed: {e.message_dict}")
+
+        # Valid case: Quantity equal to ordered
+        do_item_equal = DeliveryOrderItem(
+            delivery_order=self.delivery_order_for_order1,
+            order_item=self.order_item1_on_order1,
+            quantity_delivered=Decimal("10.00")
+        )
+        try:
+            do_item_equal.full_clean() # Should not raise
+        except ValidationError as e:
+            self.fail(f"Validation for quantity_delivered == ordered failed: {e.message_dict}")
+
+        # Invalid case: Quantity more than ordered
+        do_item_over = DeliveryOrderItem(
+            delivery_order=self.delivery_order_for_order1,
+            order_item=self.order_item1_on_order1,
+            quantity_delivered=Decimal("11.00") # Ordered 10
+        )
+        with self.assertRaisesRegex(ValidationError, "Cannot deliver more than ordered"):
+            do_item_over.full_clean()
 
 
 

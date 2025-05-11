@@ -1013,7 +1013,48 @@ class DeliveryOrderItem(models.Model):
     # Ensure quantity_delivered <= order_item.quantity - sum(other delivered_items for this order_item)
 
 
+    def clean(self):
+        """
+        Custom validation for DeliveryOrderItem:
+        1. Ensure the selected OrderItem belongs to the DeliveryOrder's parent Order.
+        2. Ensure quantity_delivered does not exceed the OrderItem's original quantity.
+           (Note: This simple check doesn't account for previous deliveries of the same OrderItem yet.
+            That's a more complex validation we can add later if needed for partial deliveries on multiple DOs.)
+        """
+        super().clean() # Call parent's clean method first
 
+        # Validation 1: Check if order_item belongs to the correct parent Order
+        # We check for existence of both delivery_order and order_item first,
+        # as this method can be called before they are fully assigned (e.g., in forms).
+        if hasattr(self, 'delivery_order') and self.delivery_order and \
+           hasattr(self, 'order_item') and self.order_item:
+
+            # Ensure both related objects are fully loaded if they are just IDs
+            # This can happen if the instance is not fully saved or is being constructed
+            # For robustness, it's better to compare IDs if possible or ensure instances are loaded
+            # Let's assume delivery_order and order_item are instances or will be when clean is called by a form
+
+            if self.delivery_order.order_id != self.order_item.order_id:
+                raise ValidationError({
+                    'order_item': f"This item does not belong to the parent Order ({self.delivery_order.order}). "
+                                  f"It belongs to Order {self.order_item.order}."
+                })
+
+            # Validation 2: Check quantity_delivered against order_item.quantity
+            # This is a simple check for now. A more advanced check would sum up
+            # all existing delivery_order_items for this order_item.
+            if self.quantity_delivered is not None and self.order_item.quantity is not None:
+                if self.quantity_delivered > self.order_item.quantity:
+                    raise ValidationError({
+                        'quantity_delivered': f"Cannot deliver more than ordered. "
+                                              f"Ordered: {self.order_item.quantity}, "
+                                              f"Attempting to deliver: {self.quantity_delivered}."
+                    })
+        # Handle cases where fields might not be set yet (e.g. before first save in some scenarios)
+        elif not hasattr(self, 'delivery_order') or not self.delivery_order:
+             pass # Cannot validate if delivery_order is not set
+        elif not hasattr(self, 'order_item') or not self.order_item:
+             pass # Cannot validate if order_item is not set
 
 
 
