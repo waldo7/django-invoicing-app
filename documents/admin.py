@@ -384,11 +384,12 @@ class OrderAdmin(admin.ModelAdmin):
     readonly_fields = (
         'order_number', 'created_at', 'updated_at',
         'display_subtotal', 'display_discount_amount', 'display_tax_amount', 'display_grand_total_detail',
-        'create_invoice_link'
+        'create_invoice_link',
+        'view_pdf_link'
     )
     fieldsets = (
         (None, {'fields': ('client', 'related_quotation', 'title', 'status')}),
-        ('Actions', {'fields': ('create_invoice_link',)}),
+        ('Actions', {'fields': ('create_invoice_link', 'view_pdf_link',)}),
         ('Event Details', {'fields': ('event_date', 'delivery_address')}),
         ('Discount', {'fields': ('discount_type', 'discount_value')}),
         # --- Add Financial Summary section ---
@@ -467,9 +468,14 @@ class OrderAdmin(admin.ModelAdmin):
             return mark_safe(f"<em>(Cannot create invoice for status: {obj.get_status_display()})</em>")
     create_invoice_link.short_description = 'Invoice Actions'
 
-    # Keep the Media class for JS auto-population
-    class Media:
-        js = ('documents/js/admin_inline_autofill.js',)
+    def view_pdf_link(self, obj):
+        """Generate a 'View PDF' button link for the Order."""
+        if obj.pk: # Check if the object has been saved
+             url = reverse('documents:order_pdf', args=[obj.pk])
+             return format_html('<a href="{}" class="button" target="_blank">View Order PDF</a>', url)
+        # For new objects not yet saved, no PDF can be generated
+        return mark_safe("<em>(Save Order first to view PDF)</em>")
+    view_pdf_link.short_description = 'PDF Action'
 
     class Media:
         # Use the SAME JavaScript file as Quote/Invoice inlines

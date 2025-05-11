@@ -26,9 +26,11 @@ urlpatterns = [
     path('order/<int:pk>/create-invoice/', views.create_invoice_from_order, name='order_create_invoice'),
     path('orders/new/', views.order_create_view, name='order_create'),
     path('order/<int:pk>/edit/', views.order_update_view, name='order_update'),
+    path('order/<int:pk>/pdf/', views.generate_order_pdf, name='order_pdf'),
     path('clients/', views.client_list_view, name='client_list'),
     path('client/<int:pk>/', views.client_detail_view, name='client_detail'),
     path('clients/new/', views.client_create_view, name='client_create'),
     path('client/<int:pk>/edit/', views.client_update_view, name='client_update'),
     path('delivery-order/<int:pk>/pdf/', views.generate_delivery_order_pdf, name='delivery_order_pdf'),
+    
 ]

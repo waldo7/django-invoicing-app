@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Order {{ order.order_number|default:order.pk }}</title>
+    <style>
+        /* Reusing the same basic styles from previous PDF templates */
+        @page {
+            size: A4;
+            margin: 1.5cm;
+        }
+        body {
+            font-family: sans-serif;
+            font-size: 11pt;
+            line-height: 1.4;
+        }
+        .header-table, .address-table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
+        .header-table td, .address-table td { vertical-align: top; padding: 5px; }
+        .company-details { text-align: left; width: 50%; }
+        .order-details-header { text-align: right; width: 50%; } /* Renamed for clarity */
+        .client-details { text-align: left; width: 50%; padding-top: 20px; }
+        .items-table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px; }
+        .items-table th, .items-table td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        .items-table th { background-color: #f2f2f2; font-weight: bold; }
+        .items-table td.number, .items-table th.number { text-align: right; }
+        .totals-table { width: 50%; margin-left: 50%; border-collapse: collapse; margin-top: 10px; }
+        .totals-table td { padding: 5px; }
+        .totals-table td.label { text-align: right; font-weight: bold; width: 60%; }
+        .totals-table td.number { text-align: right; width: 40%; }
+        .notes-section, .delivery-address-section { margin-top: 30px; font-size: 9pt; border-top: 1px solid #ccc; padding-top: 10px; }
+        h1 { text-align: right; color: #555; margin-bottom: 30px; }
+        .logo { max-height: 80px; max-width: 200px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>EVENT ORDER CONFIRMATION</h1>
+
+    <table class="header-table">
+        <tr>
+            <td class="company-details">
+                {% if settings.company_logo %}
+                    <img src="{{ settings.company_logo.url }}" class="logo" alt="Company Logo"><br>
+                {% endif %}
+                <strong>{{ settings.company_name }}</strong><br>
+                {{ settings.address|linebreaksbr }}<br>
+                Phone: {{ settings.phone }}<br>
+                Email: {{ settings.email }}<br>
+                {% if settings.tax_id %}Tax ID: {{ settings.tax_id }}{% endif %}
+            </td>
+            <td class="order-details-header">
+                <strong>Order #:</strong> {{ order.order_number|default:"Draft Order" }}<br>
+                {% if order.event_date %}
+                    <strong>Event Date:</strong> {{ order.event_date|date:"Y-m-d" }}<br>
+                {% endif %}
+                <strong>Status:</strong> {{ order.get_status_display }}<br>
+                 {% if order.related_quotation %}
+                    <strong>Based on Quote #:</strong> {{ order.related_quotation.quotation_number|default:order.related_quotation.pk }}<br>
+                 {% endif %}
+                 <strong>Order Created:</strong> {{ order.created_at|date:"Y-m-d" }}<br>
+            </td>
+        </tr>
+    </table>
+
+    <table class="address-table">
+         <tr>
+             <td class="client-details">
+                 <strong>CLIENT:</strong><br>
+                 <strong>{{ order.client.name }}</strong><br>
+                 {{ order.client.address|linebreaksbr|default:"" }}<br>
+                 Phone: {{ order.client.phone|default:"" }}<br>
+                 Email: {{ order.client.email|default:"" }}<br>
+             </td>
+             <td>
+                {% if order.title %}
+                    <strong>Subject: {{ order.title }}</strong>
+                {% endif %}
+             </td>
+         </tr>
+    </table>
+
+    {% if order.delivery_address_override or order.delivery_address %}
+    <div class="delivery-address-section">
+        <strong>Delivery Address:</strong><br>
+        {{ order.delivery_address_override|default:order.delivery_address|linebreaksbr }}
+    </div>
+    {% endif %}
+
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>Item / Service</th>
+                <th>Description</th>
+                <th class="number">Qty</th>
+                <th class="number">Unit Price</th>
+                <th class="number">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Assumes 'items' is passed in context (order.items.all) #}
+            {% for item in items %}
+                <tr>
+                    <td>{{ item.menu_item.name }}</td>
+                    <td>{{ item.description|linebreaksbr }}</td>
+                    <td class="number">{{ item.quantity|floatformat:2 }}</td>
+                    <td class="number">{{ settings.currency_symbol }} {{ item.unit_price|floatformat:2 }}</td>
+                    <td class="number">{{ settings.currency_symbol }} {{ item.line_total|floatformat:2 }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="5">No items on this order.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table class="totals-table">
+        <tr>
+            <td class="label">Subtotal:</td>
+            <td class="number">{{ settings.currency_symbol }} {{ order.subtotal|floatformat:2 }}</td>
+        </tr>
+        {% if order.discount_amount > 0 %}
+        <tr>
+            <td class="label">Discount ({{ order.get_discount_type_display }} {% if order.discount_type == 'PERCENT' %}{{ order.discount_value|floatformat:2 }}%{% endif %}):</td>
+            <td class="number">- {{ settings.currency_symbol }} {{ order.discount_amount|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td class="label">Total before Tax:</td>
+            <td class="number">{{ settings.currency_symbol }} {{ order.total_before_tax|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        {% if settings.tax_enabled and order.tax_amount > 0 %}
+        <tr>
+            <td class="label">SST ({{ settings.tax_rate|floatformat:2 }}%):</td>
+            <td class="number">{{ settings.currency_symbol }} {{ order.tax_amount|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td class="label">Grand Total:</td>
+            <td class="number"><strong>{{ settings.currency_symbol }} {{ order.grand_total|floatformat:2 }}</strong></td>
+        </tr>
+    </table>
+
+    {% if order.notes %}
+    <div class="notes-section">
+        <strong>Order Notes:</strong><br>
+        {{ order.notes|linebreaksbr }}
+    </div>
+    {% endif %}
+
+    {# Optional: Could add terms from settings if orders don't have their own #}
+    {% if settings.default_terms_conditions %}
+    <div class="terms">
+        <strong>Terms & Conditions:</strong><br>
+        {{ settings.default_terms_conditions|linebreaksbr }}
+    </div>
+    {% endif %}
+
+</body>
+</html>

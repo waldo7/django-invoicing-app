@@ -826,5 +826,69 @@ def generate_delivery_order_pdf(request, pk):
              return redirect('admin:index')
 
 
+@login_required # Changed from @staff_member_required for consistency with other frontend PDF views
+def generate_order_pdf(request, pk):
+    """
+    View to generate and return a PDF representation of an Order.
+    """
+    if not weasyprint:
+        return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
 
+    # Use select_related to optimize fetching related data
+    order = get_object_or_404(
+        Order.objects.select_related('client', 'related_quotation'),
+        pk=pk
+    )
+
+    try:
+        settings = Setting.get_solo()
+        # Use select_related for OrderItem's MenuItem
+        items = order.items.select_related('menu_item').all()
+
+        # Prepare context for the template
+        context = {
+            'order': order,
+            'items': items,
+            'settings': settings,
+        }
+
+        # Render the HTML template to a string
+        html_string = render_to_string('documents/pdf/order_pdf.html', context)
+
+        # Generate PDF using WeasyPrint
+        html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
+        pdf_file = html.write_pdf()
+
+        # Create the HTTP response
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+
+        # Set filename
+        filename = f"Order-{order.order_number or order.pk}.pdf"
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+
+        return response
+
+    except Order.DoesNotExist: # Should be caught by get_object_or_404
+        raise Http404("Order not found.")
+    except Setting.DoesNotExist:
+         messages.error(request, "Application settings have not been configured in the admin.")
+         # Redirect to the Order detail page as we have one now
+         return redirect(reverse('documents:order_detail', args=[pk]))
+    except Exception as e:
+        print(f"Error generating PDF for Order {pk}: {e}") # Log the error
+        messages.error(request, f"An error occurred while generating the PDF: {e}")
+        # Redirect to the Order detail page
+        return redirect(reverse('documents:order_detail', args=[pk]))
+    
+
+
+
+
+
+
+
+
+
+
+    
 

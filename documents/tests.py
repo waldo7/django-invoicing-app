@@ -2675,6 +2675,47 @@ class DocumentViewTests(TestCase):
 
         response = self.client.get(pdf_url)
         self.assertEqual(response.status_code, 404)
+
+    def test_generate_order_pdf_logged_out_redirect(self):
+        """Test accessing Order PDF view when logged out redirects to login."""
+        # Use order1 created in setUpTestData
+        pdf_url = reverse('documents:order_pdf', args=[self.order1.pk])
+        response = self.client.get(pdf_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={pdf_url}")
+
+    def test_generate_order_pdf_logged_in_success(self):
+        """Test the Order PDF view generates a PDF for a logged-in user."""
+        pdf_url = reverse('documents:order_pdf', args=[self.order1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(pdf_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        # Check for a reasonable filename in Content-Disposition
+        # Filename will include the order_number (e.g., Order-ORD-2025-X.pdf)
+        expected_filename_part = f"Order-{self.order1.order_number}"
+        self.assertIn(f'filename="{expected_filename_part}', response['Content-Disposition'])
+        self.assertIn("inline;", response['Content-Disposition'])
+
+        # Check if the content looks like a PDF (starts with %PDF-)
+        self.assertTrue(response.content.startswith(b'%PDF-'))
+        # You could add more specific content checks if necessary,
+        # e.g., self.assertContains(response, self.order1.client.name, html=False) # for PDF content
+
+    def test_generate_order_pdf_not_found(self):
+        """Test accessing Order PDF view for a non-existent Order returns 404."""
+        invalid_pk = self.order1.pk + self.order2.pk + 999 # A PK unlikely to exist
+        pdf_url = reverse('documents:order_pdf', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(pdf_url)
+        self.assertEqual(response.status_code, 404)
+    
     
 
 class DeliveryOrderModelTests(TestCase):
