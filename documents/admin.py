@@ -9,6 +9,7 @@ from .models import (
     Setting, Payment, Order, OrderItem, 
     DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
 )
+from .forms import DeliveryOrderItemForm
 
 
 @admin.register(Client)
@@ -484,6 +485,7 @@ class OrderAdmin(admin.ModelAdmin):
  
 class DeliveryOrderItemInline(admin.TabularInline):
     model = DeliveryOrderItem
+    form = DeliveryOrderItemForm
     extra = 1 # Show one empty row for adding items by default
     fields = ('order_item', 'quantity_delivered', 'notes')
     # autocomplete_fields = ['order_item'] # We can consider this later for usability
@@ -531,3 +533,35 @@ class DeliveryOrderAdmin(admin.ModelAdmin):
              return format_html('<a href="{}" class="button" target="_blank">View DO PDF</a>', url)
         return mark_safe("<em>(Save Delivery Order first to view PDF)</em>")
     view_pdf_link.short_description = 'PDF Action' # Label for the fieldset section
+
+    def get_formset_kwargs(self, request, obj, inline, prefix, **kwargs):
+        formset_kwargs = super().get_formset_kwargs(request, obj, inline, prefix, **kwargs)
+
+        parent_order_instance = None # Initialize
+
+        # obj is the DeliveryOrder instance.
+        # It's None on the initial GET request of the 'add' page.
+        # It's an unsaved instance if the 'add' page form is re-rendered due to errors.
+        # It's a saved instance on the 'change' page.
+        if obj and obj.order_id: # Check if obj exists AND its order_id is set
+            parent_order_instance = obj.order # Safe to access .order now
+        elif not obj and request.method == 'GET' and 'order' in request.GET:
+            # This handles pre-filling if navigating from an Order with ?order=X
+            parent_order_id = request.GET.get('order')
+            if parent_order_id:
+                try:
+                    parent_order_instance = Order.objects.get(pk=parent_order_id)
+                except (Order.DoesNotExist, ValueError): # ValueError if not a valid int
+                    pass # Keep parent_order_instance as None
+
+        if parent_order_instance:
+            if 'form_kwargs' not in formset_kwargs:
+                formset_kwargs['form_kwargs'] = {}
+            formset_kwargs['form_kwargs']['parent_order'] = parent_order_instance
+        # If no parent_order_instance is determined, 'parent_order' won't be in form_kwargs,
+        # and DeliveryOrderItemForm.__init__ will correctly set an empty queryset for order_item.
+
+        return formset_kwargs
+
+
+

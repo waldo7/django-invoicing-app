@@ -4,7 +4,7 @@ from django import forms
 from .models import (
     Quotation, QuotationItem, Client, MenuItem, DiscountType, 
     Invoice, InvoiceItem, Order, OrderItem,
-    Client
+    Client, DeliveryOrderItem, OrderItem, Order
     )
 
 class QuotationForm(forms.ModelForm):
@@ -249,5 +249,39 @@ class ClientForm(forms.ModelForm):
                      field.widget.attrs['class'] = 'form-select form-select-sm'
 
 
+class DeliveryOrderItemForm(forms.ModelForm):
+    class Meta:
+        model = DeliveryOrderItem
+        fields = ['order_item', 'quantity_delivered', 'notes']
+        # Add any widgets if needed, e.g., for notes
+        widgets = {
+            'notes': forms.Textarea(attrs={'rows': 1}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        # Pop 'parent_order' kwarg, passed from DeliveryOrderAdmin
+        parent_order = kwargs.pop('parent_order', None)
+        super().__init__(*args, **kwargs)
+
+        # Add Bootstrap classes (optional, but good for consistency if used elsewhere)
+        for field_name, field in self.fields.items():
+            if hasattr(field.widget, 'attrs'):
+                current_class = field.widget.attrs.get('class', '')
+                field.widget.attrs['class'] = f'{current_class} form-control form-control-sm'.strip()
+                if isinstance(field.widget, forms.Select):
+                     field.widget.attrs['class'] = 'form-select form-select-sm'
+
+        # Filter the 'order_item' queryset if a parent_order is provided
+        if parent_order:
+            self.fields['order_item'].queryset = OrderItem.objects.filter(order=parent_order)
+        elif self.instance and self.instance.pk and hasattr(self.instance, 'delivery_order') and self.instance.delivery_order:
+            # If editing an existing item, parent_order might not be passed explicitly,
+            # but we can infer it from the instance.
+            self.fields['order_item'].queryset = OrderItem.objects.filter(order=self.instance.delivery_order.order)
+        else:
+            # For new, unbound forms (e.g., initial load of "add" page before parent DO is saved),
+            # show no items or items from a sensible default if possible.
+            # Showing none is safer to prevent selection before parent Order is known.
+            self.fields['order_item'].queryset = OrderItem.objects.none()
 
                      
