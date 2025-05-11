@@ -65,13 +65,18 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
+        # This 'DIRS' list is crucial.
+        # Ensure it points to 'invoicing_project/templates'
+        'DIRS': [BASE_DIR / 'templates'], # Or os.path.join(BASE_DIR, 'templates')
+        'APP_DIRS': True, # This must be True for Django to find templates in apps (like allauth's defaults)
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # allauth needs this for social media integration, good to have
+                'django.template.context_processors.request', # Required by allauth
             ],
         },
     },
@@ -151,13 +156,18 @@ AUTHENTICATION_BACKENDS = [
 SITE_ID = 1
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_LOGIN_METHODS = ["email"]
-ACCOUNT_SIGNUP_FIELDS = ["email*"]
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory' # Require email verification ('optional' or 'none' also possible)
+# ACCOUNT_SIGNUP_FIELDS = ["email*"]
+ACCOUNT_PASSWORD_REQUIRED = True 
+ACCOUNT_EMAIL_REQUIRED = True 
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = True
+# ACCOUNT_EMAIL_VERIFICATION = 'mandatory' # Require email verification ('optional' or 'none' also possible)
 # ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = False # Optional: simplifies signup form slightly
 ACCOUNT_SESSION_REMEMBER = True          # Optional: Allow "Remember Me" checkbox
 # ACCOUNT_EMAIL_SUBJECT_PREFIX = "[Your Site] " # Optional: Prefix for email subjects
-
+ACCOUNT_LOGIN_BY_CODE_ENABLED = False
 # URLs to redirect to after login/logout
 LOGIN_REDIRECT_URL = '/' # Redirect to home page after login
 ACCOUNT_LOGOUT_REDIRECT_URL = '/' # Redirect to home page after logout
