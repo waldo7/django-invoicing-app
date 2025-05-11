@@ -1402,6 +1402,27 @@ class DocumentViewTests(TestCase):
         QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item1, quantity=5, unit_price=Decimal("25.00"))
         QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item2, quantity=1, unit_price=Decimal("70.00"))
 
+        # --- Add DeliveryOrder and DeliveryOrderItem creation ---
+        # Get an OrderItem from order1 to link to a DeliveryOrderItem
+        cls.order1_item1 = OrderItem.objects.filter(order=cls.order1).first()
+        if not cls.order1_item1: # Fallback if somehow order1 has no items in test setup
+            menu_item_for_do = MenuItem.objects.create(name="DO Test Item Setup", unit_price=1)
+            cls.order1_item1 = OrderItem.objects.create(order=cls.order1, menu_item=menu_item_for_do, quantity=1, unit_price=1)
+
+
+        cls.delivery_order1 = DeliveryOrder.objects.create(
+            order=cls.order1,
+            delivery_date=date(2025, 5, 11), # Use May 11, 2025 based on current context
+            status=DeliveryOrderStatus.PLANNED
+        )
+        cls.delivery_order1.refresh_from_db() # Get auto-generated do_number
+
+        DeliveryOrderItem.objects.create(
+            delivery_order=cls.delivery_order1,
+            order_item=cls.order1_item1,
+            quantity_delivered=cls.order1_item1.quantity # Deliver full quantity of this item
+        )
+
 
     def setUp(self):
         # Create a fresh test client for each test method
@@ -2616,7 +2637,46 @@ class DocumentViewTests(TestCase):
         self.assertTrue(response.context['form'].errors) # Check for errors
         self.assertContains(response, "Please correct the errors below.")
 
+    def test_generate_delivery_order_pdf_logged_out_redirect(self):
+        """Test accessing DO PDF view when logged out redirects to login."""
+        pdf_url = reverse('documents:delivery_order_pdf', args=[self.delivery_order1.pk])
+        response = self.client.get(pdf_url)
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={pdf_url}")
+
+    def test_generate_delivery_order_pdf_logged_in_success(self):
+        """Test the DO PDF view generates a PDF for a logged-in user."""
+        pdf_url = reverse('documents:delivery_order_pdf', args=[self.delivery_order1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(pdf_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        # Check for a reasonable filename in Content-Disposition
+        # Filename will include the do_number (e.g., DO-2025-X.pdf)
+        expected_filename_part = f"DO-{self.delivery_order1.do_number}"
+        self.assertIn(f'filename="{expected_filename_part}', response['Content-Disposition'])
+        self.assertIn("inline;", response['Content-Disposition']) # Should display inline
+
+        # Check if the content looks like a PDF (starts with %PDF-)
+        self.assertTrue(response.content.startswith(b'%PDF-'))
+        # Optionally check for some key text from the DO if needed (more complex)
+        # self.assertContains(response, self.delivery_order1.order.client.name, html=False) # html=False for PDF
+
+    def test_generate_delivery_order_pdf_not_found(self):
+        """Test accessing DO PDF view for a non-existent DO returns 404."""
+        invalid_pk = self.delivery_order1.pk + 999 # A PK unlikely to exist
+        pdf_url = reverse('documents:delivery_order_pdf', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(pdf_url)
+        self.assertEqual(response.status_code, 404)
     
+
 class DeliveryOrderModelTests(TestCase):
 
     @classmethod
@@ -2675,6 +2735,7 @@ class DeliveryOrderModelTests(TestCase):
         expected_number = f"DO-{do.created_at.year}-{do.pk}"
         self.assertIsNotNone(do.do_number)
         self.assertEqual(do.do_number, expected_number)
+    
     
 class DeliveryOrderItemModelTests(TestCase):
 

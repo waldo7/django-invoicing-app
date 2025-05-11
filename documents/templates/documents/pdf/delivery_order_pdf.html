@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Delivery Order {{ delivery_order.do_number|default:delivery_order.pk }}</title>
+    <style>
+        /* Reusing the same basic styles from previous PDF templates */
+        @page {
+            size: A4;
+            margin: 1.5cm;
+        }
+        body {
+            font-family: sans-serif;
+            font-size: 11pt;
+            line-height: 1.4;
+        }
+        .header-table, .address-table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
+        .header-table td, .address-table td { vertical-align: top; padding: 5px; }
+        .company-details { text-align: left; width: 50%; }
+        .do-details { text-align: right; width: 50%; }
+        .recipient-details { text-align: left; width: 50%; padding-top: 20px; }
+        .items-table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 20px; }
+        .items-table th, .items-table td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+        .items-table th { background-color: #f2f2f2; font-weight: bold; }
+        .items-table td.number, .items-table th.number { text-align: right; }
+        .signature-area { margin-top: 50px; padding-top: 20px; border-top: 1px solid #eee; width: 100%; }
+        .signature-box { display: inline-block; width: 45%; margin-top: 40px; }
+        .signature-line { border-bottom: 1px solid #333; margin-bottom: 5px; height: 20px;}
+        h1 { text-align: right; color: #555; margin-bottom: 30px; }
+        .logo { max-height: 80px; max-width: 200px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>DELIVERY ORDER</h1>
+
+    <table class="header-table">
+        <tr>
+            <td class="company-details">
+                {% if settings.company_logo %}
+                    <img src="{{ settings.company_logo.url }}" class="logo" alt="Company Logo"><br>
+                    
+                {% endif %}
+                <strong>{{ settings.company_name }}</strong><br>
+                {{ settings.address|linebreaksbr }}<br>
+                Phone: {{ settings.phone }}<br>
+                Email: {{ settings.email }}
+            </td>
+            <td class="do-details">
+                <strong>DO #:</strong> {{ delivery_order.do_number|default:"Draft DO" }}<br>
+                <strong>Delivery Date:</strong> {{ delivery_order.delivery_date|date:"Y-m-d" }}<br>
+                <strong>Order #:</strong> {{ delivery_order.order.order_number|default:delivery_order.order.pk }}<br>
+                <strong>Status:</strong> {{ delivery_order.get_status_display }}<br>
+            </td>
+        </tr>
+    </table>
+
+    <table class="address-table">
+         <tr>
+             <td class="recipient-details">
+                 <strong>DELIVER TO:</strong><br>
+                 <strong>{% if delivery_order.recipient_name %}{{ delivery_order.recipient_name }}{% else %}{{ delivery_order.order.client.name }}{% endif %}</strong><br>
+                 {% if delivery_order.delivery_address_override %}
+                    {{ delivery_order.delivery_address_override|linebreaksbr }}
+                 {% elif delivery_order.order.delivery_address %}
+                    {{ delivery_order.order.delivery_address|linebreaksbr }}
+                 {% else %}
+                    {{ delivery_order.order.client.address|linebreaksbr|default:"" }}
+                 {% endif %}
+                 <br>
+                 Client: {{ delivery_order.order.client.name }}
+                 {% if delivery_order.order.client.phone %}
+                    <br>Phone: {{ delivery_order.order.client.phone }}
+                 {% endif %}
+             </td>
+             <td>
+                {% if delivery_order.order.title %}
+                    <strong>Regarding Order: {{ delivery_order.order.title }}</strong>
+                {% endif %}
+             </td>
+         </tr>
+    </table>
+
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th>Item / Service</th>
+                <th>Description (from Order)</th>
+                <th class="number">Quantity Delivered</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {# Assumes 'items' is passed in context (delivery_order.items.all) #}
+            {% for item in items %}
+                <tr>
+                    <td>{{ item.order_item.menu_item.name }}</td>
+                    <td>{{ item.order_item.description|linebreaksbr }}</td>
+                    <td class="number">{{ item.quantity_delivered|floatformat:2 }}</td>
+                    <td>{{ item.notes|linebreaksbr }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="4">No items on this delivery order.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if delivery_order.notes %}
+    <div class="terms"> {# Reusing .terms style for notes section #}
+        <strong>Delivery Notes:</strong><br>
+        {{ delivery_order.notes|linebreaksbr }}
+    </div>
+    {% endif %}
+
+    <div class="signature-area">
+        <div class="signature-box" style="float: left;">
+            <div class="signature-line"></div>
+            Delivered By: {{ settings.company_name }}
+        </div>
+        <div class="signature-box" style="float: right; text-align: right;">
+            <div class="signature-line"></div>
+            Received By:
+            {% if delivery_order.recipient_name %}
+                {{ delivery_order.recipient_name }}
+            {% else %}
+                (Name & Signature)
+            {% endif %}
+        </div>
+        <div style="clear: both;"></div>
+    </div>
+
+</body>
+</html>

@@ -492,10 +492,13 @@ class DeliveryOrderAdmin(admin.ModelAdmin):
     search_fields = ('do_number', 'order__order_number', 'order__client__name', 'recipient_name', 'notes')
     list_select_related = ('order', 'order__client') # Performance optimization for list view
     date_hierarchy = 'delivery_date' # Adds date navigation
-    readonly_fields = ('do_number', 'created_at', 'updated_at') # do_number will be auto-generated
+    readonly_fields = ('do_number', 'created_at', 'updated_at', 'view_pdf_link')
+
 
     fieldsets = (
         (None, {'fields': ('order', 'delivery_date', 'status')}),
+        # --- Add Actions section if it makes sense, or add button to an existing one ---
+        ('Actions', {'fields': ('view_pdf_link',)}),
         ('Recipient & Address', {'fields': ('recipient_name', 'delivery_address_override')}),
         ('Notes', {'fields': ('notes',)}),
         ('System Info', {
@@ -514,3 +517,11 @@ class DeliveryOrderAdmin(admin.ModelAdmin):
         return None
     order_link.short_description = 'Parent Order' # Column header for the link
     order_link.admin_order_field = 'order__order_number' # Allow sorting by this field
+
+    def view_pdf_link(self, obj):
+        """Generate a 'View PDF' button link for the Delivery Order."""
+        if obj.pk: # Check if the object has been saved
+             url = reverse('documents:delivery_order_pdf', args=[obj.pk])
+             return format_html('<a href="{}" class="button" target="_blank">View DO PDF</a>', url)
+        return mark_safe("<em>(Save Delivery Order first to view PDF)</em>")
+    view_pdf_link.short_description = 'PDF Action' # Label for the fieldset section

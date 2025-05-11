@@ -17,7 +17,7 @@ except ImportError:
     print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
-from .models import Order, MenuItem, Quotation, Setting, Invoice, Client, OrderItem
+from .models import Order, MenuItem, Quotation, Setting, Invoice, Client, OrderItem, DeliveryOrder 
 from .forms import (
     QuotationForm, QuotationItemFormSet, 
     InvoiceForm, InvoiceItemFormSet,
@@ -189,7 +189,7 @@ def create_invoice_from_order(request, pk):
     return redirect(redirect_url)
 
 
-@staff_member_required
+@login_required
 def generate_quotation_pdf(request, pk):
     """
     View to generate and return a PDF representation of a Quotation.
@@ -229,7 +229,7 @@ def generate_quotation_pdf(request, pk):
         # Redirect to frontend quotation detail page
         return redirect(reverse('documents:quotation_detail', args=[pk]))
 
-@staff_member_required
+@login_required
 def generate_invoice_pdf(request, pk):
     """
     View to generate and return a PDF representation of an Invoice.
@@ -761,7 +761,69 @@ def client_update_view(request, pk):
     return render(request, 'documents/client_form.html', context)
 
 
+@login_required
+def generate_delivery_order_pdf(request, pk):
+    """
+    View to generate and return a PDF representation of a DeliveryOrder.
+    """
+    if not weasyprint:
+        return HttpResponse("PDF generation library (WeasyPrint) is not installed correctly.", status=500)
 
+    # Use select_related to optimize fetching related Order and its Client
+    delivery_order = get_object_or_404(
+        DeliveryOrder.objects.select_related('order', 'order__client'),
+        pk=pk
+    )
+
+    try:
+        settings = Setting.get_solo()
+        # Use select_related to optimize fetching related OrderItem and its MenuItem
+        items = delivery_order.items.select_related('order_item__menu_item').all()
+
+        # Prepare context for the template
+        context = {
+            'delivery_order': delivery_order,
+            'items': items,
+            'settings': settings,
+            # No 'is_draft' needed for DOs unless you introduce a draft status for them
+        }
+
+        # Render the HTML template to a string
+        html_string = render_to_string('documents/pdf/delivery_order_pdf.html', context)
+
+        # Generate PDF using WeasyPrint
+        html = weasyprint.HTML(string=html_string, base_url=request.build_absolute_uri('/'))
+        pdf_file = html.write_pdf()
+
+        # Create the HTTP response
+        response = HttpResponse(pdf_file, content_type='application/pdf')
+
+        # Set filename
+        filename = f"DO-{delivery_order.do_number or delivery_order.pk}.pdf"
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+
+        return response
+
+    except DeliveryOrder.DoesNotExist: # Should be caught by get_object_or_404
+        raise Http404("Delivery Order not found.")
+    except Setting.DoesNotExist:
+         messages.error(request, "Application settings have not been configured in the admin.")
+         # Redirect back to the DO detail page if we create one, or admin change page
+         # For now, let's try redirecting to admin DO change page
+         try:
+             admin_url = reverse('admin:documents_deliveryorder_change', args=[pk])
+             return redirect(admin_url)
+         except: # Fallback
+             return redirect('admin:index')
+    except Exception as e:
+        print(f"Error generating PDF for Delivery Order {pk}: {e}") # Log the error
+        messages.error(request, f"An error occurred while generating the PDF: {e}")
+        # Redirect back to the DO detail page
+        try:
+            admin_url = reverse('admin:documents_deliveryorder_change', args=[pk])
+            return redirect(admin_url)
+        except: # Fallback
+             return redirect('admin:index')
 
 
 
