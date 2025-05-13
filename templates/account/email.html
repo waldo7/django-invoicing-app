@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Manage E-mail Addresses" %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h1 class="h3 mb-0 text-center">{% trans "Manage E-mail Addresses" %}</h1>
+            </div>
+            <div class="card-body">
+                {% if user.is_authenticated %}
+                    {% if emailaddresses %}
+                        <p>{% trans 'The following e-mail addresses are associated with your account:' %}</p>
+                        <form action="{% url 'account_email' %}" class="email_list" method="post">
+                            {% csrf_token %}
+                            <fieldset class="blockLabels">
+                                {% for emailaddress in emailaddresses %}
+                                <div class="list-group mb-3">
+                                    <div class="list-group-item {% if emailaddress.primary %}bg-light fw-bold{% endif %}">
+                                        <div class="form-check">
+                                            <input id="email_radio_{{forloop.counter}}" type="radio" name="email" {% if emailaddress.primary %}checked="checked"{%endif %} value="{{emailaddress.email}}">
+                                            <label for="email_radio_{{forloop.counter}}" class="form-check-label ms-2">
+                                                {{ emailaddress.email }}
+                                                {% if emailaddress.verified %}
+                                                    <span class="badge bg-success">{% trans "Verified" %}</span>
+                                                {% else %}
+                                                    <span class="badge bg-warning text-dark">{% trans "Unverified" %}</span>
+                                                {% endif %}
+                                                {% if emailaddress.primary %}
+                                                    <span class="badge bg-primary">{% trans "Primary" %}</span>
+                                                {% endif %}
+                                            </label>
+                                        </div>
+                                        <div class="mt-2">
+                                            {% if not emailaddress.primary and emailaddress.verified %}
+                                            <button class="btn btn-sm btn-outline-secondary me-1" type="submit" name="action_primary">{% trans 'Make Primary' %}</button>
+                                            {% endif %}
+                                            {% if not emailaddress.verified %}
+                                            <button class="btn btn-sm btn-outline-info me-1" type="submit" name="action_send">{% trans 'Re-send Verification' %}</button>
+                                            {% endif %}
+                                            {% if emailaddresses|length > 1 %}
+                                            <button class="btn btn-sm btn-outline-danger" type="submit" name="action_remove">{% trans 'Remove' %}</button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </fieldset>
+                        </form>
+                    {% else %}
+                        <p><strong>{% trans 'Warning:'%}</strong> {% trans "You currently do not have any e-mail address set up. You should really add an e-mail address so you can receive notifications, reset your password, etc." %}</p>
+                    {% endif %}
+
+                    <hr class="my-4">
+                    <h2 class="h4">{% trans "Add E-mail Address" %}</h2>
+                    <form method="post" action="{% url 'account_email' %}" class="add_email">
+                        {% csrf_token %}
+                        {# Display non-field errors for the add email form #}
+                        {% if form.non_field_errors %}
+                            <div class="alert alert-danger">
+                                {% for error in form.non_field_errors %}
+                                    <p class="mb-0">{{ error }}</p>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
+                        {% for field in form %} {# 'form' is the add_email_form #}
+                            <div class="mb-3">
+                                <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+                                {{ field }}
+                                {% if field.help_text %}
+                                    <div class="form-text">{{ field.help_text|safe }}</div>
+                                {% endif %}
+                                {% for error in field.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                        <div class="d-grid">
+                            <button name="action_add" type="submit" class="btn btn-success">{% trans "Add E-mail" %}</button>
+                        </div>
+                    </form>
+
+                {% else %}
+                    <p>{% trans "You must be logged in to manage your e-mail addresses." %}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
