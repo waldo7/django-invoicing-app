@@ -16,7 +16,9 @@
         {# --- End Add --- #}
 
         {# Keep existing buttons #}
-        <a href="{{ invoice.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {% if user.is_staff %}
+          <a href="{{ invoice.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {% endif %}
         {# PDF buttons - Keep existing logic #}
         {% if invoice.status == 'DRAFT' %}
           <a href="{% url 'documents:invoice_pdf' invoice.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Draft PDF</a>

@@ -12,7 +12,9 @@
           {% if order.status == 'CONFIRMED' or order.status == 'IN_PROGRESS' or order.status == 'PENDING' %}
             <a href="{% url 'documents:order_update' order.pk %}" class="btn btn-sm btn-outline-primary">Edit Order</a>
           {% endif %}
-          <a href="{{ order.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+          {% if user.is_staff %}
+            <a href="{{ order.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+          {% endif %}
 
           {# --- Add this PDF button --- #}
           <a href="{% url 'documents:order_pdf' order.pk %}" target="_blank" class="btn btn-sm btn-outline-info">View PDF</a>
