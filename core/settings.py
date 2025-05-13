@@ -156,18 +156,20 @@ AUTHENTICATION_BACKENDS = [
 SITE_ID = 1
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
+
+# django-allauth specific settings
+# -------------------------------------------------------------------------
 ACCOUNT_LOGIN_METHODS = ["email"]
-# ACCOUNT_SIGNUP_FIELDS = ["email*"]
-ACCOUNT_PASSWORD_REQUIRED = True 
-ACCOUNT_EMAIL_REQUIRED = True 
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = True
-# ACCOUNT_EMAIL_VERIFICATION = 'mandatory' # Require email verification ('optional' or 'none' also possible)
-# ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = False # Optional: simplifies signup form slightly
-ACCOUNT_SESSION_REMEMBER = True          # Optional: Allow "Remember Me" checkbox
-# ACCOUNT_EMAIL_SUBJECT_PREFIX = "[Your Site] " # Optional: Prefix for email subjects
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*'] # Explicitly for password and confirmation
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_SESSION_REMEMBER = True
 ACCOUNT_LOGIN_BY_CODE_ENABLED = False
-# URLs to redirect to after login/logout
-LOGIN_REDIRECT_URL = '/' # Redirect to home page after login
-ACCOUNT_LOGOUT_REDIRECT_URL = '/' # Redirect to home page after logout
+
+LOGIN_REDIRECT_URL = '/'
+ACCOUNT_LOGOUT_REDIRECT_URL = '/'
+
+# Ensure these older settings are removed or commented out:
+# ACCOUNT_AUTHENTICATION_METHOD = 'email'
+# ACCOUNT_EMAIL_REQUIRED = True
+# ACCOUNT_USERNAME_REQUIRED = False
+# ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = True

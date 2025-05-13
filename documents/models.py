@@ -318,6 +318,69 @@ class Quotation(models.Model):
         self.save(update_fields=['status']) # Only save the status field
 
         return new_quote
+    
+    @transaction.atomic
+    def create_order(self):
+        """
+        Creates a new Order based on this Quotation.
+        Only proceeds if the Quotation status is 'ACCEPTED'.
+        Copies details and all line items.
+        Returns the newly created Order instance or None if creation is not allowed/fails.
+        """
+        Order = apps.get_model('documents', 'Order')
+        OrderItem = apps.get_model('documents', 'OrderItem')
+        OrderStatus = apps.get_model('documents', 'Order').OrderStatus
+
+        # 1. Check if quotation status is ACCEPTED
+        if self.status != self.Status.ACCEPTED:
+            print(f"Warning: Quotation {self.quotation_number} must be 'Accepted' to create an Order. Current status: {self.get_status_display()}.")
+            return None
+
+        # 2. Check if an Order already exists for this Quotation to prevent duplicates
+        if Order.objects.filter(related_quotation=self).exists():
+            print(f"Warning: An Order already exists for Quotation {self.quotation_number}.")
+            # Optionally, return the existing order:
+            # return Order.objects.get(related_quotation=self)
+            return None # For now, just prevent creating a new one
+
+        # 3. Prepare data for the new Order
+        order_data = {
+            'client': self.client,
+            'related_quotation': self,
+            'title': self.title or f"Order from Quotation {self.quotation_number or self.pk}",
+            'status': OrderStatus.CONFIRMED, # New orders from quotes start as Confirmed
+            'discount_type': self.discount_type,
+            'discount_value': self.discount_value,
+            # event_date and delivery_address might need to be set manually on the Order later
+            # or copied if Quotation had equivalent fields (which it doesn't currently)
+            'notes': self.notes, # Copy notes
+            # 'terms_and_conditions': self.terms_and_conditions, # Copy terms
+        }
+
+        # Create the main Order record (triggers Order's auto-numbering)
+        new_order = Order.objects.create(**order_data)
+
+        # 4. Copy line items from QuotationItem to OrderItem
+        new_order_items = []
+        for quote_item in self.items.all(): # self.items is related_name for QuotationItem
+            new_order_items.append(OrderItem(
+                order=new_order,
+                menu_item=quote_item.menu_item,
+                description=quote_item.description,
+                quantity=quote_item.quantity,
+                unit_price=quote_item.unit_price, # Crucially copy the agreed price
+                grouping_label=quote_item.grouping_label
+            ))
+
+        if new_order_items:
+            OrderItem.objects.bulk_create(new_order_items)
+
+        # 5. Optional: Update Quotation status to 'ORDERED' or similar?
+        # For now, we leave it as 'ACCEPTED'.
+        # self.status = self.Status.SOMETHING_ELSE
+        # self.save(update_fields=['status'])
+
+        return new_order
 
     
 class QuotationItem(models.Model):

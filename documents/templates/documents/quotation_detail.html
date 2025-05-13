@@ -9,36 +9,44 @@
     <h1 class="h2">Quotation {{ quotation.quotation_number|default:"Draft" }}</h1>
     <div class="btn-toolbar mb-2 mb-md-0">
       <div class="btn-group me-2">
-        {# --- Add this Edit button conditionally --- #}
         {% if quotation.status == 'DRAFT' %}
-        <a href="{% url 'documents:quotation_update' quotation.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
+            <a href="{% url 'documents:quotation_update' quotation.pk %}" class="btn btn-sm btn-outline-primary">Edit</a>
         {% endif %}
-        {# --- End Add --- #}
+        {% if user.is_staff %}
+            <a href="{{ quotation.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
+        {% endif %}
 
-        {# Keep existing buttons #}
-        <a href="{{ quotation.get_admin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary">Edit in Admin</a>
-        {# PDF buttons - Keep existing logic #}
+        {# Conditional PDF Buttons #}
         {% if quotation.status == 'DRAFT' %}
-        <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Draft PDF</a>
+            <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">Preview Draft PDF</a>
         {% else %}
-            {# Check final statuses again based on your logic #}
+            {% comment %} Define statuses for which a "final" PDF makes sense {% endcomment %}
             {% if quotation.status == 'SENT' or quotation.status == 'ACCEPTED' or quotation.status == 'REJECTED' or quotation.status == 'SUPERSEDED' %}
-            <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View Final PDF</a>
+                <a href="{% url 'documents:quotation_pdf' quotation.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary">View Final PDF</a>
             {% endif %}
         {% endif %}
-        {# Revise Button - Keep existing logic #}
+
+        {# Revise Button #}
         {% if quotation.status == 'SENT' or quotation.status == 'ACCEPTED' or quotation.status == 'REJECTED' %}
-          <a href="{% url 'documents:quotation_revise' quotation.pk %}" class="btn btn-sm btn-outline-warning">Revise</a>
+            <a href="{% url 'documents:quotation_revise' quotation.pk %}" class="btn btn-sm btn-outline-warning">Revise</a>
         {% endif %}
-        {# Finalize Button - Keep existing logic #}
+
+        {# Finalize Button #}
         {% if quotation.status == 'DRAFT' %}
-          <a href="{% url 'documents:quotation_finalize' quotation.pk %}" class="btn btn-sm btn-success">Finalize Quotation</a>
+            <a href="{% url 'documents:quotation_finalize' quotation.pk %}" class="btn btn-sm btn-success">Finalize Quotation</a>
         {% endif %}
-         {# Revert Button - Keep existing logic #}
-         {% if quotation.status == 'SENT' %}
-          <a href="{% url 'documents:quotation_revert_to_draft' quotation.pk %}" class="btn btn-sm btn-warning">Revert to Draft</a>
+
+        {# Revert to Draft Button #}
+        {% if quotation.status == 'SENT' %}
+            <a href="{% url 'documents:quotation_revert_to_draft' quotation.pk %}" class="btn btn-sm btn-warning">Revert to Draft</a>
         {% endif %}
-      </div>
+
+        {# --- Add this "Create Order" button conditionally --- #}
+        {% if quotation.status == 'ACCEPTED' %}
+            <a href="{% url 'documents:quotation_create_order' quotation.pk %}" class="btn btn-sm btn-success">Create Order from this Quote</a>
+        {% endif %}
+        {# --- End Add --- #}
+    </div>
     </div>
   </div>
 
@@ -126,6 +134,47 @@
       </table>
     </div>
   </div>
+
+  {# Related Orders section #}
+  {% if linked_orders %}
+  <hr class="my-4">
+  <h4 class="mt-4">Related Orders</h4>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover">
+      <thead>
+        <tr>
+          <th>Order Number</th>
+          <th>Status</th>
+          <th>Event Date</th>
+          <th class="text-end">Grand Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in linked_orders %}
+        <tr>
+          <td><a href="{% url 'documents:order_detail' order.pk %}">{{ order.order_number|default:"N/A" }}</a></td>
+          <td><span class="badge bg-warning text-dark">{{ order.get_status_display }}</span></td>
+          <td>{{ order.event_date|date:"Y-m-d"|default:"N/A" }}</td>
+          <td class="text-end">{{ settings.currency_symbol }} {{ order.grand_total|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif quotation.status == 'ACCEPTED' %}
+      {# Optionally show a message if quote is accepted but no order created yet #}
+      <p class="mt-3"><em>No orders have been created from this quotation yet.</em></p>
+  {% endif %}
+  {# --- End Related Orders section --- #}
+
+  {# Keep existing Terms and Conditions section below #}
+  {% if quotation.terms_and_conditions %}
+    <div class="mt-4">
+      <h5>Terms & Conditions:</h5>
+      <p style="white-space: pre-wrap;">{{ quotation.terms_and_conditions }}</p>
+    </div>
+  {% endif %}
+
 
   {# Terms and Conditions #}
   {% if quotation.terms_and_conditions %}

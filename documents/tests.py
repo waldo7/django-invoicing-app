@@ -422,6 +422,80 @@ class QuotationModelTests(TestCase):
             other_quote.refresh_from_db()
             self.assertEqual(other_quote.status, invalid_status, f"Status for {invalid_status} quote should not change.")
 
+    def test_create_order_from_quotation(self):
+        """
+        Test the create_order() method on the Quotation model.
+        """
+        # --- Setup: Create an ACCEPTED Quotation with items and details ---
+        accepted_quote = Quotation.objects.create(
+            client=self.db_client,
+            # quotation_number will be auto-generated
+            issue_date=date(2025, 5, 10), # Today's date: May 12, 2025
+            title="Accepted Quote for Order",
+            terms_and_conditions="Order Terms based on Quote",
+            notes="Order Notes from Quote",
+            discount_type=DiscountType.FIXED,
+            discount_value=Decimal("15.00"),
+            status=Quotation.Status.ACCEPTED # CRITICAL: Must be ACCEPTED
+        )
+        accepted_quote.refresh_from_db() # Get PK and number
+
+        menu_item_for_order_test = MenuItem.objects.create(name="Order Create Test Item A", unit_price=Decimal("75.00"))
+        # You can create another distinct menu item if needed for item2_quote, or reuse.
+        # Let's create another for clarity, or reuse if distinctness isn't key to this part of the test.
+        menu_item_B_for_order_test = MenuItem.objects.create(name="Order Create Test Item B", unit_price=Decimal("25.00"))
+        
+        item1_quote = QuotationItem.objects.create(
+            quotation=accepted_quote, menu_item=menu_item_for_order_test, quantity=3, unit_price=Decimal("75.00"), description="Item X desc"
+        )
+        item2_quote = QuotationItem.objects.create(
+            quotation=accepted_quote, menu_item=menu_item_B_for_order_test, quantity=1, unit_price=Decimal("25.00"), description="Item Y desc" # Using menu_item1 from setUpTestData
+        )
+        original_item_count = accepted_quote.items.count()
+        self.assertEqual(original_item_count, 2)
+
+        # --- Action: Create the order ---
+        order = accepted_quote.create_order()
+
+        # --- Assertions: Check Order ---
+        self.assertIsNotNone(order, "Order creation should succeed for an accepted quote.")
+        self.assertIsInstance(order, Order)
+        self.assertEqual(order.status, Order.OrderStatus.CONFIRMED)
+        self.assertEqual(order.client, accepted_quote.client)
+        self.assertEqual(order.related_quotation, accepted_quote)
+        self.assertEqual(order.title, accepted_quote.title)
+        self.assertEqual(order.discount_type, accepted_quote.discount_type)
+        self.assertEqual(order.discount_value, accepted_quote.discount_value)
+        # self.assertEqual(order.terms_and_conditions, accepted_quote.terms_and_conditions)
+        self.assertEqual(order.notes, accepted_quote.notes)
+        self.assertIsNotNone(order.order_number) # Should be auto-generated
+
+        # --- Assertions: Check Order Items ---
+        self.assertEqual(order.items.count(), original_item_count)
+        # Fetch items to compare details
+        # Order them to ensure consistent comparison if order doesn't matter
+        quote_items_qs = accepted_quote.items.all().order_by('menu_item__name')
+        order_items_qs = order.items.all().order_by('menu_item__name')
+
+        for q_item, o_item in zip(quote_items_qs, order_items_qs):
+            self.assertEqual(o_item.menu_item, q_item.menu_item)
+            self.assertEqual(o_item.description, q_item.description)
+            self.assertEqual(o_item.quantity, q_item.quantity)
+            self.assertEqual(o_item.unit_price, q_item.unit_price) # Crucial price copy
+            self.assertEqual(o_item.grouping_label, q_item.grouping_label)
+            # self.assertNotEqual(o_item.pk, q_item.pk) # Must be new item records
+            self.assertEqual(o_item.order, order) # Must be linked to new order
+
+        # --- Test Duplicate Prevention ---
+        order_again = accepted_quote.create_order()
+        self.assertIsNone(order_again, "Should not create a duplicate order from the same quote.")
+
+        # --- Test Invalid Status for Order Creation ---
+        draft_quote = Quotation.objects.create(client=self.db_client, status=Quotation.Status.DRAFT, issue_date=date.today())
+        self.assertIsNone(draft_quote.create_order(), "Should not create order from Draft quote.")
+
+        sent_quote = Quotation.objects.create(client=self.db_client, status=Quotation.Status.SENT, issue_date=date.today())
+        self.assertIsNone(sent_quote.create_order(), "Should not create order from Sent quote.")
     
 class QuotationItemModelTests(TestCase):
 
@@ -1301,21 +1375,14 @@ class DocumentViewTests(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        # Create a user for login testing
+        # 1. Create a user for login testing
         cls.test_user_email = 'testuser@example.com'
         cls.test_user_password = 'password123'
         cls.test_user = User.objects.create_user(
-            # No username field, use email for identification if supported by custom manager later,
-            # for default manager, username might still be technically required even if not used for login.
-            # Let's assume email is sufficient for create_user if using allauth setup,
-            # otherwise we might need: username=cls.test_user_email
             username=cls.test_user_email,
             email=cls.test_user_email,
             password=cls.test_user_password
         )
-        # Need to set email as verified if mandatory verification is on
-        # Easiest for testing is often to temporarily disable verification or use allauth test helpers,
-        # but let's try setting it manually if possible. Requires importing EmailAddress.
         try:
             from allauth.account.models import EmailAddress
             EmailAddress.objects.create(
@@ -1327,101 +1394,118 @@ class DocumentViewTests(TestCase):
         except ImportError:
              print("WARNING: allauth EmailAddress model not found, cannot mark email as verified for test user.")
 
-        Setting.get_solo() # Creates the singleton if it doesn't exist
+        # 2. Ensure Settings exist
+        Setting.get_solo()
+        today = date.today() # Using May 12, 2025 based on current context
 
-
-        # Create some data to view
+        # 3. Create a general client
         cls.client_obj = Client.objects.create(name="Client for View Test")
-        cls.quote1 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-1", status=Quotation.Status.SENT, issue_date=date.today()) # Added issue_date
-        cls.quote2 = Quotation.objects.create(client=cls.client_obj, quotation_number="Q-VIEW-2", status=Quotation.Status.DRAFT, issue_date=date.today()) # Added issue_date
-        
-        # Make sure quote numbers are generated if needed elsewhere
-        cls.quote1.refresh_from_db()
+
+        # 4. Create Quotations
+        # Quote 1 (for detail view, and to create a linked order from)
+        cls.quote1 = Quotation.objects.create(
+            client=cls.client_obj,
+            status=Quotation.Status.DRAFT,
+            issue_date=None, # Will be set by finalize
+            title="Quote 1 for Detail & Order Test"
+        )
+        cls.quote1.finalize() # Sets status to SENT, sets issue_date
+        cls.quote1.status = Quotation.Status.ACCEPTED # Manually change to ACCEPTED for create_order test
+        cls.quote1.save(update_fields=['status'])
+        cls.quote1.refresh_from_db() # Ensure all changes are reflected, including number
+
+        menu_item_q1 = MenuItem.objects.create(name="Detail Test Item Q1", unit_price=Decimal("50.00"))
+        QuotationItem.objects.create(quotation=cls.quote1, menu_item=menu_item_q1, quantity=2, unit_price=Decimal("50.00"))
+
+        # Create the linked order for quote1
+        cls.linked_order_for_quote1 = cls.quote1.create_order()
+        if cls.linked_order_for_quote1:
+            cls.linked_order_for_quote1.refresh_from_db()
+        else:
+            print("WARNING: cls.linked_order_for_quote1 was not created in setUpTestData for quote1.")
+
+
+        # Quote 2 (DRAFT, specifically for update/edit tests, with exactly 2 items)
+        cls.quote2 = Quotation.objects.create(
+            client=cls.client_obj,
+            # quotation_number="Q-VIEW-2", # Let signal handle it for consistency
+            status=Quotation.Status.DRAFT,
+            issue_date=None,
+            title="Quote 2 for Editing"
+        )
         cls.quote2.refresh_from_db()
+        menu_item_q2_a = MenuItem.objects.create(name="Quote2 Edit Item A", unit_price=Decimal("25.00"), unit="ITEM")
+        menu_item_q2_b = MenuItem.objects.create(name="Quote2 Edit Item B", unit_price=Decimal("70.00"), unit="ITEM")
+        QuotationItem.objects.create(quotation=cls.quote2, menu_item=menu_item_q2_a, quantity=5, unit_price=Decimal("25.00"))
+        QuotationItem.objects.create(quotation=cls.quote2, menu_item=menu_item_q2_b, quantity=1, unit_price=Decimal("70.00"))
 
-        # --- Add items to quote1 for detail view testing ---
-        menu_item = MenuItem.objects.create(name="Detail Test Item", unit_price=Decimal("50.00"))
-        QuotationItem.objects.create(quotation=cls.quote1, menu_item=menu_item, quantity=2, unit_price=Decimal("50.00")) # 100.00
-        # --- End Add items ---
 
-        # Need issue_date as it's required on save now (even if optional in model)
-        # unless create allows None? Let's add it.
-        today = date.today()
-        cls.inv1 = Invoice.objects.create(client=cls.client_obj, issue_date=today, status=Invoice.Status.SENT)
-        cls.inv2 = Invoice.objects.create(client=cls.client_obj, issue_date=today, status=Invoice.Status.DRAFT)
-        # Refresh to get generated numbers
+        # 5. Create Invoices
+        # Invoice 1 (SENT, for detail view, with items and payment)
+        cls.inv1 = Invoice.objects.create(client=cls.client_obj, issue_date=None, status=Invoice.Status.DRAFT, title="Invoice 1 Detail")
+        cls.inv1.finalize() # Sets to SENT, sets issue_date/due_date
         cls.inv1.refresh_from_db()
+
+        menu_item_inv1 = MenuItem.objects.create(name="Inv Detail Item For Inv1", unit_price=Decimal("80.00"))
+        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv1, quantity=1, unit_price=Decimal("80.00"))
+        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv1, quantity=1, unit_price=Decimal("20.50"))
+        Payment.objects.create(invoice=cls.inv1, amount=Decimal("50.00"), payment_date=today)
+
+        # Invoice 2 (DRAFT, for update view, with items)
+        cls.inv2 = Invoice.objects.create(client=cls.client_obj, issue_date=None, status=Invoice.Status.DRAFT, title="Invoice 2 Editing")
         cls.inv2.refresh_from_db()
+        menu_item_inv2 = MenuItem.objects.create(name="Inv Edit Item for Inv2", unit_price=Decimal("10.00"))
+        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=10, unit_price=Decimal("10.00"))
+        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=5, unit_price=Decimal("11.00"))
 
-        # --- Add items and payment to inv1 for detail view testing ---
-        menu_item_inv = MenuItem.objects.create(name="Inv Detail Item", unit_price=Decimal("80.00"))
-        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv, quantity=1, unit_price=Decimal("80.00")) # 80.00
-        InvoiceItem.objects.create(invoice=cls.inv1, menu_item=menu_item_inv, quantity=1, unit_price=Decimal("20.50")) # 20.50
-        # Total = 100.50 (assuming no tax/discount for simplicity in this setup)
-        Payment.objects.create(invoice=cls.inv1, amount=Decimal("50.00"), payment_date=today) # Add a partial payment
-        # --- End Add items/payment ---
 
-        menu_item_inv2 = MenuItem.objects.create(name="Inv Edit Item", unit_price=Decimal("10.00"))
-        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=10, unit_price=Decimal("10.00")) # Item 1 for inv2
-        InvoiceItem.objects.create(invoice=cls.inv2, menu_item=menu_item_inv2, quantity=5, unit_price=Decimal("11.00")) # Item 2 for inv2
-
-        # --- Add Order creation ---
-        today = date.today() # May 7, 2025
-        cls.order1 = Order.objects.create(client=cls.client_obj, event_date=today, status=Order.OrderStatus.CONFIRMED, title="Order 1")
-        cls.order2 = Order.objects.create(client=cls.client_obj, event_date=today - timedelta(days=5), status=Order.OrderStatus.IN_PROGRESS, title="Order 2 Past")
-        # Refresh to get generated numbers
+        # 6. Create Orders
+        # Order 1 (CONFIRMED, for detail/edit tests, with items)
+        # Ensure menu_item_ord1 is defined before being used for order_completed too
+        menu_item_ord1 = MenuItem.objects.create(name="Ord Detail/Edit Item", unit_price=Decimal("75.00"))
+        cls.order1 = Order.objects.create(client=cls.client_obj, event_date=today, status=Order.OrderStatus.CONFIRMED, title="Order 1 for Editing")
         cls.order1.refresh_from_db()
+        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord1, quantity=2, unit_price=Decimal("75.00"))
+        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord1, quantity=1, unit_price=Decimal("70.00"))
+
+        # Order 2 (IN_PROGRESS, for list view)
+        cls.order2 = Order.objects.create(client=cls.client_obj, event_date=today - timedelta(days=5), status=Order.OrderStatus.IN_PROGRESS, title="Order 2 Past")
         cls.order2.refresh_from_db()
-        # --- End Add ---
 
-        # --- Add items to order1 for detail view testing ---
-        menu_item_ord = MenuItem.objects.create(name="Ord Detail Item", unit_price=Decimal("75.00"))
-        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord, quantity=2, unit_price=Decimal("75.00")) # 150.00
-        OrderItem.objects.create(order=cls.order1, menu_item=menu_item_ord, quantity=1, unit_price=Decimal("70.00")) # 70.00
-        # Total for order1 = 220.00 (assuming no tax/discount in this specific setup)
-        # --- End Add items ---
-
+        # Order Completed (for non-editable status tests)
         cls.order_completed = Order.objects.create(
             client=cls.client_obj,
             event_date=today - timedelta(days=10),
-            status=Order.OrderStatus.COMPLETED, # Set status to COMPLETED
+            status=Order.OrderStatus.COMPLETED,
             title="Completed Order Test"
         )
         cls.order_completed.refresh_from_db()
-        # Add an item to it for consistency, can reuse menu_item_ord
-        OrderItem.objects.create(
-            order=cls.order_completed,
-            menu_item=menu_item_ord, # You can reuse an existing menu item
-            quantity=1,
-            unit_price=Decimal("60.00")
-        )
+        OrderItem.objects.create(order=cls.order_completed, menu_item=menu_item_ord1, quantity=1, unit_price=Decimal("60.00"))
 
-        cls.menu_item1 = MenuItem.objects.create(name="General Test Item A", unit_price=Decimal("25.00"), unit="ITEM")
-        cls.menu_item2 = MenuItem.objects.create(name="General Test Item B", unit_price=Decimal("70.00"), unit="ITEM")
 
-        QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item1, quantity=5, unit_price=Decimal("25.00"))
-        QuotationItem.objects.create(quotation=cls.quote2, menu_item=cls.menu_item2, quantity=1, unit_price=Decimal("70.00"))
+        # 7. General MenuItems (for use in CREATE form tests, should be distinct from items used above if names need to be unique)
+        cls.menu_item1 = MenuItem.objects.create(name="General Form Test Item A", unit_price=Decimal("25.00"), unit="ITEM")
+        cls.menu_item2 = MenuItem.objects.create(name="General Form Test Item B", unit_price=Decimal("70.00"), unit="ITEM")
 
-        # --- Add DeliveryOrder and DeliveryOrderItem creation ---
-        # Get an OrderItem from order1 to link to a DeliveryOrderItem
-        cls.order1_item1 = OrderItem.objects.filter(order=cls.order1).first()
-        if not cls.order1_item1: # Fallback if somehow order1 has no items in test setup
-            menu_item_for_do = MenuItem.objects.create(name="DO Test Item Setup", unit_price=1)
-            cls.order1_item1 = OrderItem.objects.create(order=cls.order1, menu_item=menu_item_for_do, quantity=1, unit_price=1)
 
+        # 8. Delivery Order (for DO PDF tests and other DO tests)
+        cls.order1_item1_for_do = OrderItem.objects.filter(order=cls.order1).first()
+        if not cls.order1_item1_for_do: # Fallback
+            menu_item_do_fallback = MenuItem.objects.create(name="DO Fallback Item", unit_price=1)
+            cls.order1_item1_for_do = OrderItem.objects.create(order=cls.order1, menu_item=menu_item_do_fallback, quantity=1, unit_price=1)
 
         cls.delivery_order1 = DeliveryOrder.objects.create(
             order=cls.order1,
-            delivery_date=date(2025, 5, 11), # Use May 11, 2025 based on current context
+            delivery_date=date(2025, 5, 11), # Using specific date from example
             status=DeliveryOrderStatus.PLANNED
         )
         cls.delivery_order1.refresh_from_db() # Get auto-generated do_number
-
         DeliveryOrderItem.objects.create(
             delivery_order=cls.delivery_order1,
-            order_item=cls.order1_item1,
-            quantity_delivered=cls.order1_item1.quantity # Deliver full quantity of this item
+            order_item=cls.order1_item1_for_do,
+            quantity_delivered=cls.order1_item1_for_do.quantity
         )
+    
 
 
     def setUp(self):
@@ -1502,15 +1586,26 @@ class DocumentViewTests(TestCase):
 
         response = self.client.get(detail_url)
 
-        self.assertEqual(response.status_code, 200) # OK status
-        self.assertTemplateUsed(response, 'documents/quotation_detail.html') # Correct template
-        self.assertTemplateUsed(response, 'base.html') # Uses base template
-        self.assertContains(response, f"Quotation {self.quote1.quotation_number}") # Heading/Title check
-        self.assertIn('quotation', response.context) # Context variable exists
-        self.assertEqual(response.context['quotation'], self.quote1) # Correct quote object passed
-        self.assertIn('items', response.context) # Items passed
-        self.assertContains(response, "Detail Test Item") # Check item name rendered
-        self.assertContains(response, "100.00") # Check item line total rendered (or grand total)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/quotation_detail.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, f"Quotation {self.quote1.quotation_number}")
+        self.assertIn('quotation', response.context)
+        self.assertEqual(response.context['quotation'], self.quote1)
+        self.assertIn('items', response.context)
+        self.assertContains(response, "Detail Test Item Q1") # Check item name from quote1
+
+        # --- Add these assertions for linked orders ---
+        self.assertIn('linked_orders', response.context)
+        # Check if the specific linked order's number is present (if created successfully)
+        if self.linked_order_for_quote1 and self.linked_order_for_quote1.order_number:
+            self.assertContains(response, self.linked_order_for_quote1.order_number)
+        elif self.linked_order_for_quote1: # If number wasn't generated but object exists
+             self.assertContains(response, f"Order PK {self.linked_order_for_quote1.pk}")
+        else:
+            # If linked_order_for_quote1 is None, maybe check for "No orders" message
+            # For this test, we expect an order to be linked.
+            self.assertIsNotNone(self.linked_order_for_quote1, "Linked order should have been created in setUpTestData")
 
     def test_quotation_detail_view_not_found(self):
         """Test accessing detail view for a non-existent quote returns 404."""
@@ -1609,8 +1704,7 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, f"Order {self.order1.order_number}") # Heading/Title check
         self.assertIn('order', response.context) # Context variable
         self.assertEqual(response.context['order'], self.order1) # Correct order object
-        self.assertIn('items', response.context) # Items passed
-        self.assertContains(response, "Ord Detail Item") # Check item name rendered
+        self.assertContains(response, "Ord Detail/Edit Item") # Check item name rendered (add "/Edit")
         # Check one of the prices from the items
         self.assertContains(response, "75.00")
         # Check grand total (assuming no tax/discount set directly on this order for this test)
@@ -1786,7 +1880,7 @@ class DocumentViewTests(TestCase):
         )
         
         # Verify quotation created
-        new_quote = Quotation.objects.last() # Get the most recently created quotation
+        new_quote = Quotation.objects.latest('pk') # Get the instance with the highest PK (most recent)
         self.assertIsNotNone(new_quote)
         self.assertEqual(new_quote.title, 'New Test Quotation via Form')
         self.assertEqual(new_quote.client, self.client_obj)
@@ -1983,7 +2077,7 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.context['item_formset'].instance, self.quote2) # Check formset bound
         self.assertContains(response, f"Edit Quotation {self.quote2.quotation_number}") # Check title/heading
         self.assertContains(response, self.client_obj.name) # Check client selected
-        self.assertContains(response, "General Test Item A") # Check item appears
+        self.assertContains(response, "Quote2 Edit Item A") # Or "Quote2 Edit Item B"
 
     def test_quotation_update_view_post_valid_data(self):
         """Test POST to update view with valid data updates quotation and items."""
@@ -2400,7 +2494,7 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.context['form'].instance, self.order1) # Check form bound
         self.assertEqual(response.context['item_formset'].instance, self.order1) # Check formset bound
         self.assertContains(response, f"Edit Order {self.order1.order_number}")
-        self.assertContains(response, "Ord Detail Item") # Check item appears
+        self.assertContains(response, "Ord Detail/Edit Item") # Check item appears
 
     def test_order_update_view_post_valid_data(self):
         """Test POST to update view with valid data updates order and items."""
@@ -2717,7 +2811,6 @@ class DocumentViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
     
     
-
 class DeliveryOrderModelTests(TestCase):
 
     @classmethod

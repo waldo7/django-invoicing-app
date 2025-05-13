@@ -2,6 +2,7 @@ from django.utils.html import format_html, mark_safe
 from solo.admin import SingletonModelAdmin # Import SoloAdmin
 from django.contrib import admin
 from django.urls import reverse
+from django.apps import apps
 
 # Register your models here.
 from .models import (
@@ -60,7 +61,9 @@ class QuotationAdmin(admin.ModelAdmin):
         'revert_to_draft_link',
         'revise_quotation_link', 
         'preview_draft_pdf_link', 
-        'view_final_pdf_link'
+        'view_final_pdf_link',
+        'create_order_link',
+        'display_linked_orders',
         )
     fieldsets = (
         # Section 1: Core Info (No quotation_number here - it's read-only)
@@ -71,9 +74,15 @@ class QuotationAdmin(admin.ModelAdmin):
             'finalize_quotation_link',
             'revert_to_draft_link',
             'revise_quotation_link', 
+            'create_order_link',
             'preview_draft_pdf_link', 
             'view_final_pdf_link',
+            
             )}),
+        ('Related Documents', { # You can create a new section or add to an existing one
+            'fields': ('display_linked_orders',), # <-- Add new method here
+            'classes': ('collapse',), # Optional: make it collapsible if it might be long
+        }),
         # Section 2: Dates
         ('Dates', {
             'fields': ('issue_date', 'valid_until')
@@ -168,6 +177,35 @@ class QuotationAdmin(admin.ModelAdmin):
             return format_html('<a href="{}" class="button" target="_blank">View Final PDF</a>', url)
         return "-" # Show dash if not applicable
     view_final_pdf_link.short_description = 'Final PDF'
+    
+    def create_order_link(self, obj):
+        """Generate a 'Create Order' button if status is Accepted."""
+        if obj.pk and obj.status == Quotation.Status.ACCEPTED:
+            # Check if an order already exists for this quotation to avoid duplicates from admin
+            Order = apps.get_model('documents', 'Order')
+            if not Order.objects.filter(related_quotation=obj).exists():
+                url = reverse('documents:quotation_create_order', args=[obj.pk])
+                return format_html('<a href="{}" class="button">Create Order from this Quote</a>', url)
+            else:
+                return mark_safe("<em>(Order already created for this quote)</em>")
+        return mark_safe("<em>(Quote must be 'Accepted' to create an order)</em>")
+    create_order_link.short_description = 'Order Action'
+
+    def display_linked_orders(self, obj):
+        if not obj.pk:
+            return "N/A (Save Quotation first)"
+
+        linked_orders = obj.orders.all().order_by('-created_at') # Uses related_name 'orders'
+        if not linked_orders.exists():
+            return "No orders created from this quotation yet."
+
+        html = "<ul>"
+        for order in linked_orders:
+            order_admin_url = reverse('admin:documents_order_change', args=[order.pk])
+            html += f'<li><a href="{order_admin_url}">{order.order_number or f"Order PK {order.pk}"}</a> - Status: {order.get_status_display()}</li>'
+        html += "</ul>"
+        return mark_safe(html)
+    display_linked_orders.short_description = 'Linked Orders'
 
     class Media:
         # List of JS files to include on the admin change/add pages

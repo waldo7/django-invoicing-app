@@ -307,16 +307,21 @@ def quotation_detail_view(request, pk):
     """
     Display the details of a single quotation.
     """
-    # Fetch the specific quotation, ensuring client data is fetched efficiently
-    quotation = get_object_or_404(Quotation.objects.select_related('client'), pk=pk)
-    # Fetch related items, also getting linked menu_item efficiently
+    quotation = get_object_or_404(Quotation.objects.select_related('client', 'previous_version'), pk=pk)
     items = quotation.items.select_related('menu_item').all()
     settings = Setting.get_solo()
+
+    # --- Add this line to fetch linked orders ---
+    # Uses the related_name 'orders' from Order.related_quotation
+    # Limit to 5 most recent for now, can add pagination later
+    linked_orders = quotation.orders.all().order_by('-created_at')[:5]
+    # --- End Add ---
 
     context = {
         'quotation': quotation,
         'items': items,
         'settings': settings,
+        'linked_orders': linked_orders, # --- Add this to context ---
     }
     return render(request, 'documents/quotation_detail.html', context)
 
@@ -881,7 +886,34 @@ def generate_order_pdf(request, pk):
         return redirect(reverse('documents:order_detail', args=[pk]))
     
 
+@login_required # Or @staff_member_required if this button will only be in admin
+def create_order_from_quotation(request, pk):
+    """
+    View to handle creating a new Order from an ACCEPTED Quotation.
+    """
+    quotation = get_object_or_404(Quotation, pk=pk)
 
+    # Call the model method to create the order
+    new_order = quotation.create_order() # This method returns the new Order or None
+
+    if new_order:
+        messages.success(
+            request,
+            f"Order {new_order.order_number} created successfully from Quotation {quotation.quotation_number}."
+        )
+        # Redirect to the detail page of the newly created order
+        redirect_url = reverse('documents:order_detail', args=[new_order.pk])
+    else:
+        # The create_order method on the model handles printing warnings for specific failure reasons
+        messages.warning(
+            request,
+            f"Could not create Order from Quotation {quotation.quotation_number}. "
+            "Ensure the quotation is 'Accepted' and an order doesn't already exist for it."
+        )
+        # Redirect back to the quotation's detail page
+        redirect_url = reverse('documents:quotation_detail', args=[quotation.pk])
+
+    return redirect(redirect_url)
 
 
 
