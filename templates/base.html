@@ -29,18 +29,21 @@
                 <a class="nav-link {% if request.resolver_match.url_name == 'home' %}active{% endif %}" aria-current="page" href="{% url 'home' %}">Home</a>
               </li>
               <li class="nav-item">
-                 {# Use namespace 'documents' for app URLs #}
-                <a class="nav-link {% if request.resolver_match.view_name == 'documents:quotation_list' %}active{% endif %}" href="{% url 'documents:quotation_list' %}">Quotations</a>
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:client_list' %}active{% endif %}" href="{% url 'documents:client_list' %}">Clients</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link {% if request.resolver_match.view_name == 'documents:invoice_list' %}active{% endif %}" href="{% url 'documents:invoice_list' %}">Invoices</a>
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:quotation_list' %}active{% endif %}" href="{% url 'documents:quotation_list' %}">Quotations</a>
               </li>
               <li class="nav-item">
                 <a class="nav-link {% if request.resolver_match.view_name == 'documents:order_list' %}active{% endif %}" href="{% url 'documents:order_list' %}">Orders</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link {% if request.resolver_match.view_name == 'documents:client_list' %}active{% endif %}" href="{% url 'documents:client_list' %}">Clients</a>
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:delivery_order_list' %}active{% endif %}" href="{% url 'documents:delivery_order_list' %}">Delivery Orders</a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link {% if request.resolver_match.view_name == 'documents:invoice_list' %}active{% endif %}" href="{% url 'documents:invoice_list' %}">Invoices</a>
+              </li>              
+              
             {% endif %}
           </ul>
           <ul class="navbar-nav ms-auto mb-2 mb-md-0">

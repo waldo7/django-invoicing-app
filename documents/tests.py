@@ -2810,6 +2810,33 @@ class DocumentViewTests(TestCase):
         response = self.client.get(pdf_url)
         self.assertEqual(response.status_code, 404)
     
+    def test_delivery_order_list_view_logged_out_redirect(self):
+        """Test accessing delivery order list view when logged out redirects to login."""
+        list_url = reverse('documents:delivery_order_list')
+        response = self.client.get(list_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={list_url}")
+
+    def test_delivery_order_list_view_logged_in_success(self):
+        """Test the delivery order list view loads correctly for a logged-in user."""
+        list_url = reverse('documents:delivery_order_list')
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(list_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'documents/delivery_order_list.html')
+        self.assertTemplateUsed(response, 'base.html')
+        self.assertContains(response, "Delivery Orders") # Page title/heading
+        self.assertIn('page_obj', response.context) # Context variable for Paginator
+        # Check if the delivery_order1's number is present
+        self.assertContains(response, self.delivery_order1.do_number)
+        # Check if the parent order's number is present
+        self.assertContains(response, self.delivery_order1.order.order_number)
+        # Check if the client name (via parent order) is present
+        self.assertContains(response, self.delivery_order1.order.client.name)
     
 class DeliveryOrderModelTests(TestCase):
 

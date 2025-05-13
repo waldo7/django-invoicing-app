@@ -3,9 +3,10 @@ from django.shortcuts import get_object_or_404, redirect, render # Helpful short
 from django.http import JsonResponse, Http404, HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.template.loader import render_to_string # To render template to string
+from django.urls import reverse, reverse_lazy
+from django.core.paginator import Paginator
 from django.contrib import messages
 from django.db import transaction
-from django.urls import reverse
 
 # Import WeasyPrint (will cause error if not installed)
 try:
@@ -17,7 +18,13 @@ except ImportError:
     print("ERROR: WeasyPrint is not installed. PDF generation will not work.")
     print("Please install it: pip install WeasyPrint and required system dependencies.")
 
-from .models import Order, MenuItem, Quotation, Setting, Invoice, Client, OrderItem, DeliveryOrder 
+from .models import (
+    Client, Quotation, QuotationItem, 
+    Invoice, InvoiceItem, Payment,
+    Order, OrderItem,
+    DeliveryOrder, DeliveryOrderItem, # Ensure DeliveryOrder is imported
+    Setting, MenuItem
+)
 from .forms import (
     QuotationForm, QuotationItemFormSet, 
     InvoiceForm, InvoiceItemFormSet,
@@ -916,7 +923,24 @@ def create_order_from_quotation(request, pk):
     return redirect(redirect_url)
 
 
+@login_required
+def delivery_order_list_view(request):
+    """
+    Display a list of all Delivery Orders with pagination.
+    """
+    delivery_order_list = DeliveryOrder.objects.select_related(
+        'order', 'order__client'
+    ).all().order_by('-delivery_date', '-created_at') # Order by delivery date, then creation
 
+    paginator = Paginator(delivery_order_list, 10) # Show 10 delivery orders per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    context = {
+        'page_obj': page_obj,
+        'title': 'Delivery Orders'
+    }
+    return render(request, 'documents/delivery_order_list.html', context)
 
 
 

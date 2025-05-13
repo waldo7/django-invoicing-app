@@ -32,6 +32,7 @@ urlpatterns = [
     path('client/<int:pk>/', views.client_detail_view, name='client_detail'),
     path('clients/new/', views.client_create_view, name='client_create'),
     path('client/<int:pk>/edit/', views.client_update_view, name='client_update'),
+    path('delivery-orders/', views.delivery_order_list_view, name='delivery_order_list'),
     path('delivery-order/<int:pk>/pdf/', views.generate_delivery_order_pdf, name='delivery_order_pdf'),
     
 ]
