@@ -943,7 +943,33 @@ def delivery_order_list_view(request):
     return render(request, 'documents/delivery_order_list.html', context)
 
 
+@login_required
+def delivery_order_detail_view(request, pk):
+    """
+    Display the details of a single Delivery Order.
+    """
+    delivery_order = get_object_or_404(
+        DeliveryOrder.objects.select_related(
+            'order',
+            'order__client',
+            'order__related_quotation' # If you want to show quote ref
+        ),
+        pk=pk
+    )
+    # Fetch related items, also getting linked order_item and its menu_item efficiently
+    items = delivery_order.items.select_related(
+        'order_item__menu_item', # Access menu_item name via order_item
+        'order_item__order' # Access original order if needed from item level
+    ).all()
+    settings = Setting.get_solo()
 
+    context = {
+        'delivery_order': delivery_order,
+        'items': items,
+        'settings': settings, # For currency symbol, company info etc.
+        'title': f"Delivery Order {delivery_order.do_number or delivery_order.pk}"
+    }
+    return render(request, 'documents/delivery_order_detail.html', context)
 
 
     

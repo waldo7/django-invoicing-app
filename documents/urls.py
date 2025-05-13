@@ -34,5 +34,6 @@ urlpatterns = [
     path('client/<int:pk>/edit/', views.client_update_view, name='client_update'),
     path('delivery-orders/', views.delivery_order_list_view, name='delivery_order_list'),
     path('delivery-order/<int:pk>/pdf/', views.generate_delivery_order_pdf, name='delivery_order_pdf'),
+    path('delivery-order/<int:pk>/', views.delivery_order_detail_view, name='delivery_order_detail'),
     
 ]

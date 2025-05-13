@@ -2837,6 +2837,54 @@ class DocumentViewTests(TestCase):
         self.assertContains(response, self.delivery_order1.order.order_number)
         # Check if the client name (via parent order) is present
         self.assertContains(response, self.delivery_order1.order.client.name)
+        
+    def test_delivery_order_detail_view_logged_out_redirect(self):
+        """Test accessing DO detail view when logged out redirects to login."""
+        # Use delivery_order1 created in setUpTestData
+        detail_url = reverse('documents:delivery_order_detail', args=[self.delivery_order1.pk])
+        response = self.client.get(detail_url) # HTTP TestClient
+        self.assertEqual(response.status_code, 302)
+        login_url = reverse('account_login')
+        self.assertRedirects(response, f"{login_url}?next={detail_url}")
+
+    def test_delivery_order_detail_view_logged_in_success(self):
+        """Test the DO detail view loads correctly for a logged-in user."""
+        detail_url = reverse('documents:delivery_order_detail', args=[self.delivery_order1.pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+
+        self.assertEqual(response.status_code, 200) # OK status
+        self.assertTemplateUsed(response, 'documents/delivery_order_detail.html') # Correct template
+        self.assertTemplateUsed(response, 'base.html') # Uses base template
+        # Check title in context (passed from view)
+        self.assertContains(response, f"Delivery Order {self.delivery_order1.do_number}")
+        self.assertIn('delivery_order', response.context) # Context variable exists
+        self.assertEqual(response.context['delivery_order'], self.delivery_order1) # Correct DO object
+        self.assertIn('items', response.context) # Items passed
+
+        # Check for key data from DO and its related objects
+        self.assertContains(response, self.delivery_order1.order.client.name) # Client name
+        self.assertContains(response, self.delivery_order1.order.order_number) # Parent Order number
+        # The first item of delivery_order1 is order1_item1_for_do, which uses menu_item_ord1
+        # menu_item_ord1 was named "Ord Detail/Edit Item"
+        self.assertContains(response, "Ord Detail/Edit Item") # Check name of delivered item
+        # Check quantity delivered for that item (which was set to order_item1_for_do.quantity)
+        delivered_item = self.delivery_order1.items.first()
+        if delivered_item:
+            self.assertContains(response, f"{delivered_item.quantity_delivered:.2f}")
+
+
+    def test_delivery_order_detail_view_not_found(self):
+        """Test accessing detail view for a non-existent DO returns 404."""
+        invalid_pk = self.delivery_order1.pk + 999 # A PK unlikely to exist
+        detail_url = reverse('documents:delivery_order_detail', args=[invalid_pk])
+        login_successful = self.client.login(email=self.test_user_email, password=self.test_user_password)
+        self.assertTrue(login_successful, "Test user login failed")
+
+        response = self.client.get(detail_url)
+        self.assertEqual(response.status_code, 404) # Not Found status
     
 class DeliveryOrderModelTests(TestCase):
 

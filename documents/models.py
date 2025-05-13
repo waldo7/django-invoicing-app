@@ -1035,6 +1035,12 @@ class DeliveryOrder(models.Model):
         ordering = ['-delivery_date', '-created_at']
         verbose_name = "Delivery Order"
         verbose_name_plural = "Delivery Orders"
+        
+    def get_admin_url(self):
+        """
+        Returns the URL to the admin change page for this delivery order instance.
+        """
+        return reverse('admin:documents_deliveryorder_change', args=[self.pk])
 
 
 class DeliveryOrderItem(models.Model):

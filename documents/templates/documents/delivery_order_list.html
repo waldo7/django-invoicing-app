@@ -32,7 +32,7 @@
           {% for do in page_obj.object_list %}
             <tr>
               <td>
-                 <a href="{% url 'admin:documents_deliveryorder_change' do.pk %}">{{ do.do_number|default:"DRAFT_DO" }}</a>
+                 <a href="{% url 'documents:delivery_order_detail' do.pk %}">{{ do.do_number|default:"DRAFT_DO" }}</a>
               </td>
               <td>
                   {% if do.order %}
@@ -52,6 +52,7 @@
               <td>{{ do.recipient_name|default:"-" }}</td>
               <td>
                  <a href="{% url 'admin:documents_deliveryorder_change' do.pk %}" class="action-link" title="View/Edit in Admin">Admin</a>
+                 <a href="{% url 'documents:delivery_order_detail' do.pk %}" class="action-link" title="View Details">Details</a>
                  <a href="{% url 'documents:delivery_order_pdf' do.pk %}" target="_blank" class="action-link" title="View PDF">PDF</a>
               </td>
             </tr>
