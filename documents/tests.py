@@ -20,7 +20,8 @@ from .forms import (
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem,
     Setting, DiscountType, Payment, PaymentMethod, Order, OrderItem,
-    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus 
+    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
+    CreditNote, CreditNoteItem, CreditNoteStatus 
 )
 
 
@@ -2886,6 +2887,7 @@ class DocumentViewTests(TestCase):
         response = self.client.get(detail_url)
         self.assertEqual(response.status_code, 404) # Not Found status
     
+    
 class DeliveryOrderModelTests(TestCase):
 
     @classmethod
@@ -3100,10 +3102,115 @@ class DeliveryOrderItemModelTests(TestCase):
             do_item_over.full_clean()
 
 
+class CreditNoteModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.db_client = Client.objects.create(name="Client for Credit Notes")
+        cls.invoice = Invoice.objects.create(
+            client=cls.db_client,
+            issue_date=date(2025, 4, 1), # Use May 14, 2025 as current
+            status=Invoice.Status.PAID # Assume invoice was paid
+        )
+        cls.invoice.invoice_number = "INV-CN-TEST-1" # Manually set for __str__
+        cls.invoice.save()
+
+    def test_credit_note_creation(self):
+        """Test creating a basic Credit Note record."""
+        cn_issue_date = date(2025, 5, 14)
+        cn = CreditNote.objects.create(
+            client=self.db_client,
+            related_invoice=self.invoice,
+            issue_date=cn_issue_date,
+            reason="Product return for item X."
+            # status defaults to DRAFT
+        )
+        # We'll test cn_number generation separately later
+        self.assertEqual(cn.client, self.db_client)
+        self.assertEqual(cn.related_invoice, self.invoice)
+        self.assertEqual(cn.issue_date, cn_issue_date)
+        self.assertEqual(cn.reason, "Product return for item X.")
+        self.assertEqual(cn.status, CreditNoteStatus.DRAFT) # Check default
+
+    def test_credit_note_str_representation(self):
+        """Test the string representation of CreditNote."""
+        cn = CreditNote.objects.create(client=self.db_client, related_invoice=self.invoice)
+        cn.refresh_from_db()
+        
+        # Construct expected number
+        expected_number = f"CN-{cn.created_at.year}-{cn.pk}"
+        self.assertEqual(cn.cn_number, expected_number) # Verify number itself
+        expected_str = f"Credit Note {cn.cn_number} for {self.db_client.name} (Invoice: {self.invoice.invoice_number})"
+        self.assertEqual(str(cn), expected_str)
+        # After cn_number generation, this test would change
+
+    def test_cn_number_auto_generation(self):
+        """Test that cn_number is generated correctly on first save."""
+        cn = CreditNote.objects.create(client=self.db_client, related_invoice=self.invoice)
+        # Refresh from DB to get the value set by the signal
+        cn.refresh_from_db()
+
+        # Check the format
+        expected_number = f"CN-{cn.created_at.year}-{cn.pk}"
+        self.assertIsNotNone(cn.cn_number)
+        self.assertEqual(cn.cn_number, expected_number)
 
 
+class CreditNoteItemModelTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        client = Client.objects.create(name="Client for CN Items")
+        menu_item = MenuItem.objects.create(name="CN Test Item", unit_price=Decimal("30.00"))
+
+        cls.invoice = Invoice.objects.create(
+            client=client,
+            issue_date=date(2025, 3, 15),
+            status=Invoice.Status.PAID
+        )
+        cls.invoice.invoice_number = "INV-CN-ITEM-1"; cls.invoice.save(update_fields=['invoice_number'])
+
+        cls.invoice_item = InvoiceItem.objects.create(
+            invoice=cls.invoice,
+            menu_item=menu_item,
+            quantity=Decimal("3.00"),
+            unit_price=Decimal("30.00")
+        )
+
+        cls.credit_note = CreditNote.objects.create(
+            client=client,
+            related_invoice=cls.invoice,
+            issue_date=date(2025, 5, 14)
+        )
+        cls.credit_note.refresh_from_db()
 
 
+    def test_credit_note_item_creation(self):
+        """Test creating a Credit Note Item record."""
+        cn_item = CreditNoteItem.objects.create(
+            credit_note=self.credit_note,
+            related_invoice_item=self.invoice_item, # Optional link
+            description="Credit for 1 unit of CN Test Item",
+            quantity=Decimal("1.00"),
+            unit_price=Decimal("30.00")
+        )
+        self.assertEqual(cn_item.credit_note, self.credit_note)
+        self.assertEqual(cn_item.related_invoice_item, self.invoice_item)
+        self.assertEqual(cn_item.description, "Credit for 1 unit of CN Test Item")
+        self.assertEqual(cn_item.quantity, Decimal("1.00"))
+        self.assertEqual(cn_item.unit_price, Decimal("30.00"))
+
+    def test_credit_note_item_str_representation(self):
+        """Test the string representation."""
+        cn_item = CreditNoteItem.objects.create(
+            credit_note=self.credit_note,
+            description="Item to credit",
+            quantity=Decimal("2.00"),
+            unit_price=Decimal("15.00")
+        )
+        # Uses self.credit_note.cn_number which was manually set in setUpTestData
+        expected_str = f"2.00 x Item to credit on {self.credit_note.cn_number}"
+        self.assertEqual(str(cn_item), expected_str)
 
 
     

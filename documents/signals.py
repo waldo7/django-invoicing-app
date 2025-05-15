@@ -5,7 +5,7 @@ from django.apps import apps
 from decimal import Decimal
 
 from .models import (
-    Quotation, Payment, Invoice, Order, DeliveryOrder
+    Quotation, Payment, Invoice, Order, DeliveryOrder, CreditNote
 )
 
 
@@ -124,7 +124,18 @@ def generate_do_number(sender, instance, created, **kwargs):
         instance.save(update_fields=['do_number'])
 
 
-
+@receiver(post_save, sender=CreditNote)
+def generate_cn_number(sender, instance, created, **kwargs):
+    """
+    Generate a credit note number automatically after a CreditNote is first created.
+    Format: CN-YYYY-ID
+    """
+    if created and not instance.cn_number:
+        year = instance.created_at.year if instance.created_at else timezone.now().year
+        pk = instance.pk
+        number = f"CN-{year}-{pk}"
+        instance.cn_number = number
+        instance.save(update_fields=['cn_number'])
 
 
 

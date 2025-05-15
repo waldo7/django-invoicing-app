@@ -1126,4 +1126,101 @@ class DeliveryOrderItem(models.Model):
              pass # Cannot validate if order_item is not set
 
 
+class CreditNoteStatus(models.TextChoices):
+    DRAFT = 'DRAFT', 'Draft'
+    ISSUED = 'ISSUED', 'Issued'       # Means it's finalized and sent/given to client
+    APPLIED = 'APPLIED', 'Applied'     # Means the credit has been fully utilized (e.g., against future invoices or refunded)
+    CANCELLED = 'CANCELLED', 'Cancelled'
 
+
+class CreditNote(models.Model):
+    """
+    Represents a Credit Note issued to a client, usually related to a specific invoice.
+    """
+    cn_number = models.CharField(
+        max_length=50, unique=True,
+        blank=True, null=True, # For auto-generation later
+        editable=False,
+        verbose_name="Credit Note Number"
+    )
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.PROTECT, # Protect client if credit notes exist
+        related_name='credit_notes'
+    )
+    # A Credit Note is typically issued against a specific invoice
+    related_invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.PROTECT, # Protect invoice if credit notes are issued against it
+        related_name='credit_notes'
+        # null=True, blank=True, # Could be optional if a CN can be standalone, but usually not. Let's make it required for now.
+    )
+    issue_date = models.DateField(null=True, blank=True, help_text="Date the credit note is officially issued.")
+    reason = models.TextField(blank=True, default='', help_text="Reason for issuing the credit note.")
+    status = models.CharField(
+        max_length=15, # Increased to accommodate 'PARTIALLY_APPLIED' if needed later
+        choices=CreditNoteStatus.choices,
+        default=CreditNoteStatus.DRAFT
+    )
+    # No direct discount fields on CN; items define the credit amounts.
+    # Calculation properties (subtotal, tax_amount, grand_total) will be added later.
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Calculation Properties to be added later:
+    # @property def subtotal(self): ...
+    # @property def tax_amount(self): ... (Could be complex, based on original invoice's tax or if tax is credited)
+    # @property def grand_total(self): ... (Total credit amount)
+
+    def __str__(self):
+        num = self.cn_number if self.cn_number else "Draft CN"
+        return f"Credit Note {num} for {self.client.name} (Invoice: {self.related_invoice.invoice_number or self.related_invoice.pk})"
+
+    class Meta:
+        ordering = ['-issue_date', '-created_at']
+        verbose_name = "Credit Note"
+        verbose_name_plural = "Credit Notes"
+
+class CreditNoteItem(models.Model):
+    """
+    Represents a single line item on a Credit Note.
+    Details the specific item/service being credited.
+    """
+    credit_note = models.ForeignKey(
+        CreditNote,
+        on_delete=models.CASCADE,
+        related_name='items'
+    )
+    # Optionally link back to the original InvoiceItem being credited for traceability
+    related_invoice_item = models.ForeignKey(
+        InvoiceItem,
+        on_delete=models.SET_NULL, # Keep CN item even if original InvItem is deleted
+        null=True, blank=True,
+        related_name='credited_by_items',
+        help_text="Original invoice item this credit applies to, if any."
+    )
+    description = models.TextField(help_text="Description of the item/service being credited (can be copied from invoice item or custom).")
+    quantity = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Quantity of the item being credited (usually positive)."
+        # Consider MinValueValidator(Decimal('0.01')) if qty must be > 0
+    )
+    unit_price = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text="Unit price at which the item is being credited (usually matches original invoice price)."
+    )
+    # tax_rate on item? Or assume overall CN tax calculation? For now, keep simple.
+
+    # Calculation property to be added later:
+    # @property def line_total(self): return (self.quantity * self.unit_price).quantize(Decimal('0.01'))
+
+    def __str__(self):
+        cn_num = self.credit_note.cn_number if self.credit_note_id and self.credit_note.cn_number else f"CN PK {self.credit_note_id}"
+        return f"{self.quantity} x {self.description[:50]} on {cn_num}" # Truncate description
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = "Credit Note Item"
+        verbose_name_plural = "Credit Note Items"

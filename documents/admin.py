@@ -8,7 +8,8 @@ from django.apps import apps
 from .models import (
     Client, MenuItem, Quotation, QuotationItem, Invoice, InvoiceItem, 
     Setting, Payment, Order, OrderItem, 
-    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
+    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
+    CreditNote, CreditNoteItem, CreditNoteStatus
 )
 from .forms import DeliveryOrderItemForm
 
@@ -600,6 +601,66 @@ class DeliveryOrderAdmin(admin.ModelAdmin):
         # and DeliveryOrderItemForm.__init__ will correctly set an empty queryset for order_item.
 
         return formset_kwargs
+
+
+class CreditNoteItemInline(admin.TabularInline):
+    model = CreditNoteItem
+    extra = 1 # Show one empty row for adding items
+    # Fields to display/edit in the inline form
+    fields = ('related_invoice_item', 'description', 'quantity', 'unit_price',)
+    # autocomplete_fields = ['related_invoice_item'] # Consider later for usability
+    # Note: related_invoice_item will show all InvoiceItems.
+    # Filtering this based on the CreditNote's related_invoice can be complex
+    # and is best handled by model validation (clean method on CreditNoteItem) for now.
+
+
+@admin.register(CreditNote)
+class CreditNoteAdmin(admin.ModelAdmin):
+    list_display = ('cn_number', 'client_link', 'related_invoice_link', 'issue_date', 'status', 'created_at')
+    list_filter = ('status', 'issue_date', 'client')
+    search_fields = ('cn_number', 'client__name', 'related_invoice__invoice_number', 'reason')
+    list_select_related = ('client', 'related_invoice') # Performance for list view
+    date_hierarchy = 'issue_date'
+    readonly_fields = ('cn_number', 'created_at', 'updated_at') # cn_number will be auto-generated
+
+    fieldsets = (
+        (None, {'fields': ('client', 'related_invoice', 'issue_date', 'status')}),
+        ('Details', {'fields': ('reason',)}),
+        ('System Info', {
+            'fields': ('cn_number', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    inlines = [CreditNoteItemInline]
+
+    def client_link(self, obj):
+        if obj.client:
+            link = reverse("admin:documents_client_change", args=[obj.client.pk])
+            return format_html('<a href="{}">{}</a>', link, obj.client.name)
+        return None
+    client_link.short_description = 'Client'
+    client_link.admin_order_field = 'client__name'
+
+    def related_invoice_link(self, obj):
+        if obj.related_invoice:
+            link = reverse("admin:documents_invoice_change", args=[obj.related_invoice.pk])
+            return format_html('<a href="{}">{}</a>', link, obj.related_invoice.invoice_number or f"Invoice PK {obj.related_invoice.pk}")
+        return None
+    related_invoice_link.short_description = 'Related Invoice'
+    related_invoice_link.admin_order_field = 'related_invoice__invoice_number'
+
+    # We'll add PDF button here later
+
+
+
+
+
+
+
+
+
+
+
 
 
 
